@@ -9,7 +9,7 @@ subclasses this and owes the framework nothing else.
 `UploadJobConfig` adds `upload_file_name`. That field is not part of the
 minimal contract, it belongs to the usage pattern of the framework `Job`, which
 persists, reloads, and tracks a single uploaded input file without knowing the
-domain. An app adopting `cosmo_suite.job.Job` must therefore subclass
+domain. An app adopting `cosmo_ecosystem.job.Job` must therefore subclass
 `UploadJobConfig` and inject it via `Job.config_model` at startup.
 
 See docs/plan/cosmo-core-package-boundary.md (config-model contract).

@@ -5,7 +5,7 @@ import time
 import pytest
 from celery import states
 
-from cosmo_suite.background_job_manager import (
+from cosmo_ecosystem.background_job_manager import (
     NAME_TEST_TASK,
     background_job_manager,
 )

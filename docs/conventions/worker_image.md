@@ -85,7 +85,7 @@ That is the step from undetectable to detectable, not completeness.
 
 ## Where the job lives
 
-**In the apps, not in `cosmo-suite`.** Two reasons, and the second decides it:
+**In the apps, not in `cosmo-ecosystem`.** Two reasons, and the second decides it:
 
 - This repo builds no image in CI and has no runner tags; adding the job would
   mean adding docker-in-docker infrastructure for it alone. The apps already

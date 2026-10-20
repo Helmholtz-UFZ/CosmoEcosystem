@@ -17,7 +17,7 @@ import dash_ag_grid as dag
 import dash_bootstrap_components as dbc
 from dash import Input, Output, State, callback, dcc, html
 
-from cosmo_suite.constants import (
+from cosmo_ecosystem.constants import (
     CLEAN_BUTTON_JOB_MANAGEMENT_ID,
     DELETE_BUTTON_JOB_MANAGEMENT_ID,
     DUMMY_STORE_JOB_MANAGEMENT_ID,
@@ -25,10 +25,10 @@ from cosmo_suite.constants import (
     LOADING_OVERLAY_MODAL_SHARED_ID,
     REFRESH_BUTTON_JOB_MANAGEMENT_ID,
 )
-from cosmo_suite.job import Job
-from cosmo_suite.layouts import create_header, page_container_column_layout
-from cosmo_suite.db_manager import DbManager
-from cosmo_suite.tasks.maintenance_tasks import clean_up_jobs
+from cosmo_ecosystem.job import Job
+from cosmo_ecosystem.layouts import create_header, page_container_column_layout
+from cosmo_ecosystem.db_manager import DbManager
+from cosmo_ecosystem.tasks.maintenance_tasks import clean_up_jobs
 
 log = logging.getLogger(__name__)
 

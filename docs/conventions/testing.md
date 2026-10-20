@@ -30,7 +30,7 @@ Two of those are worth naming because they are not tests of behaviour:
   places (both `uv.lock`) are covered by `uv lock --check` in the lint jobs.
 
 **It does have a `test/conftest.py`, and that file is load-bearing.**
-`cosmo_suite.config` reads its environment at import time and raises for anything
+`cosmo_ecosystem.config` reads its environment at import time and raises for anything
 missing, so a test module importing the framework needs those variables to exist
 *before* collection. conftest sets placeholder values with `os.environ.setdefault`
 — an already-exported variable still wins. Without it the suite cannot even be

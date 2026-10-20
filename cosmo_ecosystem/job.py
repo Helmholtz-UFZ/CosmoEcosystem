@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-"""Module for a Cosmo Suite Job."""
+"""Module for a Cosmo Ecosystem Job."""
 
 from __future__ import annotations
 
@@ -18,31 +18,31 @@ from typing import Literal
 import coolname
 from werkzeug.utils import secure_filename
 
-from cosmo_suite.base_job import BaseJob
-from cosmo_suite.config import JOB_WORK_DIR_TEMPLATE
-from cosmo_suite.constants import (
+from cosmo_ecosystem.base_job import BaseJob
+from cosmo_ecosystem.config import JOB_WORK_DIR_TEMPLATE
+from cosmo_ecosystem.constants import (
     DAYS_DELETE_NOT_SUBMITTED,
     DAYS_DELETE_SUBMITTED,
     LOG_FILE_NAME,
 )
-from cosmo_suite.db_manager import DbManager
-from cosmo_suite.error_handling import (
+from cosmo_ecosystem.db_manager import DbManager
+from cosmo_ecosystem.error_handling import (
     InvalidJobID,
     JobExists,
     JobNotFound,
 )
-from cosmo_suite.object_storage_manager import (
+from cosmo_ecosystem.object_storage_manager import (
     delete_directory_from_storage,
     delete_file_from_storage,
     get_files,
     save_files,
 )
-from cosmo_suite.pydantic_models import UploadJobConfig, validate_job_id
+from cosmo_ecosystem.pydantic_models import UploadJobConfig, validate_job_id
 
 log = logging.getLogger(__name__)
 
 try:
-    FRAMEWORK_VERSION = version("cosmo-suite")
+    FRAMEWORK_VERSION = version("cosmo-ecosystem")
 except PackageNotFoundError:
     # Convention deviation (CLAUDE.md: no defensive programming). This value is
     # provenance metadata, never control flow, and a consumer may put the

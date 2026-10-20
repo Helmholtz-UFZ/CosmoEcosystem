@@ -1,6 +1,6 @@
 # Lokale Port-Zuteilung über die drei Repos
 
-**Betrifft:** `cosmo-suite/examples/csv_profiler`, `cosmopolitan`, `ufz-cosmonaut`
+**Betrifft:** `cosmo-ecosystem/examples/csv_profiler`, `cosmopolitan`, `ufz-cosmonaut`
 **Erstellt:** 2026-08-11 · **Kanonischer Ort:** dieses Repo (die Zuteilung ist
 repo-übergreifend und darf nur **eine** Quelle haben)
 

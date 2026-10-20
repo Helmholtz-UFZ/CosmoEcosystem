@@ -24,7 +24,7 @@ class BaseJob(ABC):
     Framework code that is handed a job — ``files_route.serve_files``, the reset
     callbacks in ``layouts``, a ``Job.submit_handler`` — only ever uses these
     five members. An app that implements them can hand the framework its own job
-    class instead of adopting the concrete ``cosmo_suite.job.Job``.
+    class instead of adopting the concrete ``cosmo_ecosystem.job.Job``.
 
     A route or callback that needs more than the contract says so in its own
     docstring; ``serve_files`` for instance also needs ``working_dir``.

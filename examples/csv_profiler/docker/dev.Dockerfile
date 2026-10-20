@@ -33,15 +33,15 @@ RUN rclone --version
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-WORKDIR /python_docker/cosmo_suite
+WORKDIR /python_docker/cosmo_ecosystem
 
-# Build context is the repo root, so cosmo-suite (a local-path dependency of the
+# Build context is the repo root, so cosmo-ecosystem (a local-path dependency of the
 # example) is present. Copy the repo, then install the EXAMPLE project — which pulls
-# cosmo-suite editable from ../.. — into the example's own venv.
+# cosmo-ecosystem editable from ../.. — into the example's own venv.
 COPY --chown=appuser:appuser . .
 
-WORKDIR /python_docker/cosmo_suite/examples/csv_profiler
-ENV PATH="/python_docker/cosmo_suite/examples/csv_profiler/.venv/bin:$PATH"
+WORKDIR /python_docker/cosmo_ecosystem/examples/csv_profiler
+ENV PATH="/python_docker/cosmo_ecosystem/examples/csv_profiler/.venv/bin:$PATH"
 RUN uv sync --frozen
 
 # Switch to non-root user

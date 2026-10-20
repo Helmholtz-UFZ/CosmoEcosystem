@@ -5,8 +5,8 @@ import shutil
 import urllib.request
 from datetime import timedelta
 
-from cosmo_suite.config import JOB_WORK_DIR_TEMPLATE
-from cosmo_suite.object_storage_manager import (
+from cosmo_ecosystem.config import JOB_WORK_DIR_TEMPLATE
+from cosmo_ecosystem.object_storage_manager import (
     delete_directory_from_storage,
     get_files,
     get_presigned_download_url,

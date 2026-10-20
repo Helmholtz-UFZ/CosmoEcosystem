@@ -5,7 +5,7 @@
 # into both web and worker containers for development.
 #
 # This is the same pattern used by:
-#   - Cosmo Suite: docker-compose.local-smp.yml (soil-moisture-prediction)
+#   - COSMOPOLITAN: docker-compose.local-smp.yml (soil-moisture-prediction)
 #   - COSMONAUT: docker-compose.local-sr.yml (sensor-routing)
 #
 # Prerequisites:
@@ -23,16 +23,16 @@
 # See README.md "Extracting your computation module" for full instructions.
 
 services:
-  cosmo-suite:
+  cosmo-ecosystem:
     volumes:
       # Mount your local package source into the container's site-packages.
       # Replace <your_package_name> and the host path with your actual values.
       #
       # Example: if your package is at ../my-computation-pkg/src/my_computation/
-      # - "../my-computation-pkg/src/my_computation:/python_docker/cosmo_suite/.venv/lib/python3.13/site-packages/my_computation"
-      - "../YOUR_PACKAGE_REPO/src/YOUR_PACKAGE_NAME:/python_docker/cosmo_suite/.venv/lib/python3.13/site-packages/YOUR_PACKAGE_NAME"
+      # - "../my-computation-pkg/src/my_computation:/python_docker/cosmo_ecosystem/.venv/lib/python3.13/site-packages/my_computation"
+      - "../YOUR_PACKAGE_REPO/src/YOUR_PACKAGE_NAME:/python_docker/cosmo_ecosystem/.venv/lib/python3.13/site-packages/YOUR_PACKAGE_NAME"
 
-  cosmo-suite-worker:
+  cosmo-ecosystem-worker:
     volumes:
       # Same mount for the worker container so both use the same local code.
-      - "../YOUR_PACKAGE_REPO/src/YOUR_PACKAGE_NAME:/python_docker/cosmo_suite/.venv/lib/python3.13/site-packages/YOUR_PACKAGE_NAME"
+      - "../YOUR_PACKAGE_REPO/src/YOUR_PACKAGE_NAME:/python_docker/cosmo_ecosystem/.venv/lib/python3.13/site-packages/YOUR_PACKAGE_NAME"

@@ -53,7 +53,7 @@ Both are keyword-only and both default to the framework's own values, so
 ```python
 from functools import partial
 
-from cosmo_suite.error_handling import EXPECTED_ERRORS, USE_ERROR_MESSAGE, handle_error
+from cosmo_ecosystem.error_handling import EXPECTED_ERRORS, USE_ERROR_MESSAGE, handle_error
 from soil_moisture_prediction.input_file_parser import FileValidationError
 
 app = Dash(
@@ -158,7 +158,7 @@ hands it:
 ```python
 # In app.py
 from functools import partial
-from cosmo_suite.error_handling import handle_error
+from cosmo_ecosystem.error_handling import handle_error
 
 from my_app.email_service import notify_maintainer
 
@@ -180,7 +180,7 @@ Three properties of this seam are deliberate, and each one is load-bearing:
   says so with `expected_errors`.
 
 A hook that raises is logged and swallowed. This is a deliberate deviation from
-the no-bare-`except` rule (`cosmo_suite/error_handling.py` carries the comment):
+the no-bare-`except` rule (`cosmo_ecosystem/error_handling.py` carries the comment):
 an SMTP timeout must not take the user's error modal down with it.
 
 **Why this hook exists at all:** without it, an app that adopts the framework's
@@ -198,7 +198,7 @@ from `soil_moisture_prediction.input_file_parser`. Two classes, one name, in one
 process.
 
 **Decision (Slice 2):** the framework keeps defining
-`cosmo_suite.error_handling.FileValidationError`. It is in `error_responds_dict`
+`cosmo_ecosystem.error_handling.FileValidationError`. It is in `error_responds_dict`
 and the upload callbacks catch it, so it stays where it is. Resolving the
 collision is app-side work and belongs in the consuming app's own plan; the app
 either catches both classes explicitly, or wraps the foreign exception into the

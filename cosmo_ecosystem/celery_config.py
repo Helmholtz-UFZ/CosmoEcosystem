@@ -1,4 +1,4 @@
-"""Base Celery configuration for Cosmo Suite background tasks.
+"""Base Celery configuration for Cosmo Ecosystem background tasks.
 
 Domains extend routing/scheduling at runtime (e.g. adding their computation
 queue via ``app.conf.task_routes``); this base only knows the framework tasks.
@@ -6,7 +6,7 @@ queue via ``app.conf.task_routes``); this base only knows the framework tasks.
 
 from celery.schedules import crontab
 
-from cosmo_suite.config import REDIS_DB, REDIS_HOST, REDIS_PASSWORD, REDIS_PORT
+from cosmo_ecosystem.config import REDIS_DB, REDIS_HOST, REDIS_PASSWORD, REDIS_PORT
 
 
 def _get_redis_port():
@@ -57,7 +57,7 @@ class BaseCeleryConfig:
 
     # Task routing (framework tasks only; domains add their own routes at runtime)
     task_routes = {
-        "cosmo_suite.tasks.maintenance_tasks.*": {"queue": "maintenance"},
+        "cosmo_ecosystem.tasks.maintenance_tasks.*": {"queue": "maintenance"},
     }
 
     # Default queue settings
@@ -106,7 +106,7 @@ class BaseCeleryConfig:
 
     beat_schedule = {
         "cleanup-at-3am": {
-            "task": "cosmo_suite.tasks.maintenance_tasks.cleanup",
+            "task": "cosmo_ecosystem.tasks.maintenance_tasks.cleanup",
             "schedule": crontab(minute=0, hour=3),
             "options": {"queue": "maintenance"},
         },

@@ -19,7 +19,7 @@ import boto3
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError
 
-from cosmo_suite.config import (
+from cosmo_ecosystem.config import (
     JOB_WORK_DIR_TEMPLATE,
     OBJECT_STORAGE_ACCESS_KEY,
     OBJECT_STORAGE_BUCKET,

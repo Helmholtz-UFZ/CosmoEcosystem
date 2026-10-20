@@ -1,4 +1,4 @@
-"""Logging configuration for Cosmo Suite applications.
+"""Logging configuration for Cosmo Ecosystem applications.
 
 Every builder takes ``excluded_packages``: the noisy libraries only the calling
 app pulls in. They are added to DEFAULT_EXCLUDED_PACKAGES, so an app never has
@@ -13,7 +13,7 @@ import time
 import psycopg2
 from psycopg2 import pool
 
-from cosmo_suite.config import (
+from cosmo_ecosystem.config import (
     POSTGRES_DB,
     POSTGRES_HOST_NAME,
     POSTGRES_PASSWORD,

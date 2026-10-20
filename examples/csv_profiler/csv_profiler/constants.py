@@ -2,7 +2,7 @@
 
 Domain-specific ids for the example's home / input / job_submission / results
 pages. Shared framework ids (URL_LOCATION, RESET_JOB_STORE, LOADING_OVERLAY, …)
-come from ``cosmo_suite.constants``.
+come from ``cosmo_ecosystem.constants``.
 
 Naming convention: <NAME>_<TYPE>_<PAGE>_ID (see docs/conventions/html_ids.md).
 """

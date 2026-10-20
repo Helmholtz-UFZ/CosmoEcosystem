@@ -32,14 +32,14 @@ RUN curl -O https://downloads.rclone.org/rclone-current-linux-amd64.zip && \
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-WORKDIR /python_docker/cosmo_suite
+WORKDIR /python_docker/cosmo_ecosystem
 
 # Build context is the repo root (see dev.Dockerfile): copy the repo, then install
 # the EXAMPLE project (framework editable from ../..) as appuser, without dev deps.
 COPY --chown=appuser:appuser . .
 
-RUN chown appuser:appuser /python_docker/cosmo_suite
-WORKDIR /python_docker/cosmo_suite/examples/csv_profiler
+RUN chown appuser:appuser /python_docker/cosmo_ecosystem
+WORKDIR /python_docker/cosmo_ecosystem/examples/csv_profiler
 USER appuser
 RUN uv sync --no-dev --frozen
 

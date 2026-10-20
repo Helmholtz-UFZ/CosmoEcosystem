@@ -7,7 +7,7 @@ job here is the whole point of the wrapper: the framework's manager takes a bare
 somewhere else reaches the same method through its own one-line wrapper.
 """
 
-from cosmo_suite.background_job_manager import background_job_manager
+from cosmo_ecosystem.background_job_manager import background_job_manager
 
 NAME_COMPUTATION_TASK = "csv_profiler.tasks.computation_tasks.start_computation"
 

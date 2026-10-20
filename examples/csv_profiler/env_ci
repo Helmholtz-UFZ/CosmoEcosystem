@@ -15,15 +15,15 @@ WEB_OUTSIDE_URL="http://localhost:8080"
 ### Postgres config ###
 POSTGRES_HOST_NAME="postgres"
 POSTGRES_PORT="5432"
-POSTGRES_DB="cosmo_suite"
-POSTGRES_USER="cosmo_suite_user"
+POSTGRES_DB="cosmo_ecosystem"
+POSTGRES_USER="cosmo_ecosystem_user"
 POSTGRES_PASSWORD="test"
 
 ### Object storage ###
 OBJECT_STORAGE_ACCESS_KEY="accesskey"
-OBJECT_STORAGE_BUCKET="cosmo-suite-jobs"
+OBJECT_STORAGE_BUCKET="cosmo-ecosystem-jobs"
 OBJECT_STORAGE_HOST="http://object-storage:9000"
-OBJECT_STORAGE_REMOTE_NAME="cosmo-suite-remote"
+OBJECT_STORAGE_REMOTE_NAME="cosmo-ecosystem-remote"
 OBJECT_STORAGE_SECRET_KEY="secretkey"
 
 ### Redis ###

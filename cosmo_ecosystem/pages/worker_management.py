@@ -45,8 +45,8 @@ import dash_bootstrap_components as dbc
 from dash import Input, Output, State, callback, html, no_update, register_page
 from dash.exceptions import PreventUpdate
 
-from cosmo_suite.background_job_manager import background_job_manager
-from cosmo_suite.constants import (
+from cosmo_ecosystem.background_job_manager import background_job_manager
+from cosmo_ecosystem.constants import (
     ACTIVE_TASKS_TABLE_WORKER_MANAGEMENT_ID,
     CANCEL_MODAL_CANCEL_BUTTON_WORKER_MANAGEMENT_ID,
     CANCEL_MODAL_CONFIRM_BUTTON_WORKER_MANAGEMENT_ID,
@@ -68,7 +68,7 @@ from cosmo_suite.constants import (
     WORKER_REFRESH_BTN_WORKER_MANAGEMENT_ID,
     WORKER_STATS_CARD_DIV_WORKER_MANAGEMENT_ID,
 )
-from cosmo_suite.layouts import create_header, page_container_column_layout
+from cosmo_ecosystem.layouts import create_header, page_container_column_layout
 
 log = logging.getLogger(__name__)
 
@@ -868,7 +868,7 @@ register_page(
     "pages.worker_management",
     path="/worker-management",
     name="Worker Management",
-    title="Cosmo Suite - Worker Management",
+    title="Cosmo Ecosystem - Worker Management",
     description="Monitor and control Celery background workers and tasks.",
     layout=layout,
 )

@@ -3,7 +3,7 @@
 #
 # Ports follow the suite-wide local allocation (csv_profiler slot: 8082 / 5434 / 6381 /
 # 9020 / 9021) so this stack can run at the same time as cosmopolitan's and cosmonaut's
-# — see cosmo-suite/docs/plan/local-port-allocation.md.
+# — see cosmo-ecosystem/docs/plan/local-port-allocation.md.
 #
 # Only the *_HOST_PORT variables move here. The app runs inside the compose network and
 # reaches the services by name on their fixed internal ports, so POSTGRES_PORT,
@@ -24,20 +24,20 @@ FLASK_HOST_PORT=8082
 WEB_OUTSIDE_URL="http://localhost:8082"
 
 ### Postgres credentials ###
-POSTGRES_DB="cosmo_suite"
+POSTGRES_DB="cosmo_ecosystem"
 POSTGRES_HOST_NAME="postgres"
 POSTGRES_PORT="5432"
 POSTGRES_HOST_PORT=5434
-POSTGRES_USER="cosmo_suite_user"
+POSTGRES_USER="cosmo_ecosystem_user"
 POSTGRES_PASSWORD="test"
 
 ### Object storage ###
 OBJECT_STORAGE_ACCESS_KEY="accesskey"
-OBJECT_STORAGE_BUCKET="cosmo-suite-jobs"
+OBJECT_STORAGE_BUCKET="cosmo-ecosystem-jobs"
 OBJECT_STORAGE_HOST="http://object-storage:9000"
 OBJECT_STORAGE_HOST_PORT=9020
 OBJECT_STORAGE_CONSOLE_HOST_PORT=9021
-OBJECT_STORAGE_REMOTE_NAME="cosmo-suite-remote"
+OBJECT_STORAGE_REMOTE_NAME="cosmo-ecosystem-remote"
 OBJECT_STORAGE_SECRET_KEY="secretkey"
 
 ### Redis ###

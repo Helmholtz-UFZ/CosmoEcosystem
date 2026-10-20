@@ -1,6 +1,6 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it using these metadata."
-title: "COSMO Suite framework"
+title: "Cosmo Ecosystem"
 abstract: >-
   A reusable Software-as-a-Service framework that turns scientific Python code into
   browser-based applications. It provides the application shell, Pydantic-driven form
@@ -20,15 +20,15 @@ authors:
     email: louis-ferdinand.trinkle@ufz.de
     affiliation: "Helmholtz Centre for Environmental Research – UFZ"
     orcid: "https://orcid.org/0009-0003-0434-939X"
-version: "0.8.1"
-date-released: "2026-09-17"
+version: "0.9.0"
+date-released: "2026-10-20"
 license: EUPL-1.2
 identifiers:
   - type: doi
     value: 10.5281/zenodo.21996475
     description: "Concept DOI, resolves to the latest version"
-repository-code: "https://codebase.helmholtz.cloud/ufz/tb5-smm/met/wg7/cosmo-suite"
-url: "https://github.com/Helmholtz-UFZ/CosmoSuite"
+repository-code: "https://codebase.helmholtz.cloud/ufz/tb5-smm/met/wg7/cosmo-ecosystem"
+url: "https://github.com/Helmholtz-UFZ/CosmoEcosystem"
 keywords:
   - "Software-as-a-Service"
   - "web application"

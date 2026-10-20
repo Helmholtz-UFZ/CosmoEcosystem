@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # =============================================================================
-# copy.sh — Bootstrap a new project from the cosmo-suite
+# copy.sh — Bootstrap a new project from the cosmo-ecosystem
 # =============================================================================
 #
 # Usage:
@@ -50,7 +50,7 @@ echo
 echo "Copying files..."
 rsync -a --exclude='.git/' \
          --exclude='copy.sh' \
-         --exclude='cosmo_suite_plan.md' \
+         --exclude='cosmo_ecosystem_plan.md' \
          --exclude='SOUL.md' \
          --exclude='USER.md' \
          --exclude='.claude/' \
@@ -61,7 +61,7 @@ rsync -a --exclude='.git/' \
          --exclude='.venv/' \
          --exclude='.env' \
          --exclude='.docker_build_hash' \
-         --exclude='cosmo_suite/work_dir/*' \
+         --exclude='cosmo_ecosystem/work_dir/*' \
          --exclude='celerybeat-schedule*' \
          --exclude='test/artifacts/' \
          --exclude='uv.lock' \
@@ -74,21 +74,21 @@ echo "Renaming references in files..."
 find "$DEST" -type f -not -path '*/\.git/*' -not -name '*.png' -not -name '*.jpg' \
     -not -name '*.ico' -not -name '*.svg' -not -name '*.woff*' -not -name '*.ttf' \
     -print0 | xargs -0 sed -i \
-    -e "s/cosmo_suite/${NEW_NAME}/g" \
-    -e "s/Cosmo Suite/${NEW_UPPER}/g" \
-    -e "s/cosmo-suite/${NEW_HYPHEN}/g"
+    -e "s/cosmo_ecosystem/${NEW_NAME}/g" \
+    -e "s/Cosmo Ecosystem/${NEW_UPPER}/g" \
+    -e "s/cosmo-ecosystem/${NEW_HYPHEN}/g"
 
 # Step 4: Print branded files to customize
 echo
 echo "Done! New project created at: $DEST"
 echo
 echo "Files to customize with your branding:"
-echo "  cosmo_suite/static/start_banner.png  — Main banner image"
-echo "  cosmo_suite/static/icon.svg          — App icon (navbar, favicon)"
-echo "  cosmo_suite/static/icon_white.svg    — White variant of icon"
-echo "  cosmo_suite/static/small_icon.png    — Small icon variant"
-echo "  cosmo_suite/assets/favicon.ico       — Browser favicon"
-echo "  cosmo_suite/pages/home.py            — Home page welcome text"
+echo "  cosmo_ecosystem/static/start_banner.png  — Main banner image"
+echo "  cosmo_ecosystem/static/icon.svg          — App icon (navbar, favicon)"
+echo "  cosmo_ecosystem/static/icon_white.svg    — White variant of icon"
+echo "  cosmo_ecosystem/static/small_icon.png    — Small icon variant"
+echo "  cosmo_ecosystem/assets/favicon.ico       — Browser favicon"
+echo "  cosmo_ecosystem/pages/home.py            — Home page welcome text"
 echo "  README.md                         — Project description"
 echo
 echo "Next steps:"

@@ -1,4 +1,4 @@
-"""Dash app for the CSV profiler example — composes the Cosmo Suite shell.
+"""Dash app for the CSV profiler example — composes the Cosmo Ecosystem shell.
 
 Wires the framework Job seams (config model, file validator, submit handler, app
 version) to the CSV profiler domain, then builds the multi-page Dash app: the
@@ -14,14 +14,14 @@ from importlib.metadata import version
 import dash_bootstrap_components as dbc
 from dash import Dash
 
-from cosmo_suite.config import DEBUG, PORT
-from cosmo_suite.db_manager import DbManager
-from cosmo_suite.error_handling import handle_error
-from cosmo_suite.files_route import serve_files
-from cosmo_suite.job import Job
-from cosmo_suite.layouts import app_layout
-from cosmo_suite.logger import get_logger_config_web
-from cosmo_suite.object_storage_manager import create_bucket, setup_remote
+from cosmo_ecosystem.config import DEBUG, PORT
+from cosmo_ecosystem.db_manager import DbManager
+from cosmo_ecosystem.error_handling import handle_error
+from cosmo_ecosystem.files_route import serve_files
+from cosmo_ecosystem.job import Job
+from cosmo_ecosystem.layouts import app_layout
+from cosmo_ecosystem.logger import get_logger_config_web
+from cosmo_ecosystem.object_storage_manager import create_bucket, setup_remote
 
 from csv_profiler.background_job_manager import submit_computation_job
 from csv_profiler.computation_module import validate_csv
@@ -58,9 +58,9 @@ server = app.server
 # Register the framework's infra/ops pages (they live in the installed package,
 # not under this app's pages_folder). register_page requires the app to exist
 # first, so these imports run after Dash().
-import cosmo_suite.pages.logs  # noqa: E402, F401
-import cosmo_suite.pages.job_management  # noqa: E402, F401
-import cosmo_suite.pages.worker_management  # noqa: E402, F401
+import cosmo_ecosystem.pages.logs  # noqa: E402, F401
+import cosmo_ecosystem.pages.job_management  # noqa: E402, F401
+import cosmo_ecosystem.pages.worker_management  # noqa: E402, F401
 
 # Set up object storage.
 setup_remote()
@@ -71,7 +71,7 @@ create_bucket()
 # thread started at import can hold one of Celery's internal locks at that moment,
 # and the forked worker then blocks forever on its first task submission. Without
 # --preload every worker would start its own Beat instead, and every scheduled task
-# would run once per worker. See docs/conventions/celery_beat.md in cosmo-suite.
+# would run once per worker. See docs/conventions/celery_beat.md in cosmo-ecosystem.
 
 # Serve files
 serve_files(app)

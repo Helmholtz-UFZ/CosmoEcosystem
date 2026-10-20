@@ -20,7 +20,7 @@ from playwright.sync_api import Page
 from slugify import slugify
 from sqlalchemy.exc import OperationalError
 
-from cosmo_suite.config import (
+from cosmo_ecosystem.config import (
     OBJECT_STORAGE_SECRET_KEY,
     PORT,
     POSTGRES_PASSWORD,
@@ -29,8 +29,8 @@ from cosmo_suite.config import (
     REDIS_PASSWORD,
     REDIS_PORT,
 )
-from cosmo_suite.db_manager import DbManager
-from cosmo_suite.object_storage_manager import (
+from cosmo_ecosystem.db_manager import DbManager
+from cosmo_ecosystem.object_storage_manager import (
     ObjectStorageError,
     create_bucket,
     setup_remote,
@@ -39,7 +39,7 @@ from cosmo_suite.object_storage_manager import (
 from csv_profiler.db_manager import JobTable
 
 # Every test module in this suite imports DbManager directly (test_db_manager.py)
-# or transitively through cosmo_suite.job (test_e2e.py's dash_app fixture), so
+# or transitively through cosmo_ecosystem.job (test_e2e.py's dash_app fixture), so
 # this has to be set once here, before collection, same as the seams in app.py.
 DbManager.job_table = JobTable
 

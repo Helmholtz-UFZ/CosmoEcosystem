@@ -5,7 +5,7 @@ process. A thread running at that moment can hold one of Celery's internal locks
 and the forked worker then blocks forever on its first task submission — no error,
 no log line, just a request that never returns. Without --preload every worker
 imports app.py, and a Beat started there runs once per worker. Beat belongs in the
-Celery worker (``--beat``); see docs/conventions/celery_beat.md in cosmo-suite.
+Celery worker (``--beat``); see docs/conventions/celery_beat.md in cosmo-ecosystem.
 
 Read from the source: importing app.py would boot the whole app.
 """
@@ -49,5 +49,5 @@ def test_app_starts_no_thread():
 
     assert not offenders, (
         f"{APP.name} calls {offenders}; run it in the Celery worker instead "
-        "(cosmo-suite docs/conventions/celery_beat.md)"
+        "(cosmo-ecosystem docs/conventions/celery_beat.md)"
     )

@@ -13,8 +13,8 @@ include:
 
 variables:
   # Used by GitLab to initialise the postgres service container (example-test)
-  POSTGRES_DB: cosmo_suite
-  POSTGRES_USER: cosmo_suite_user
+  POSTGRES_DB: cosmo_ecosystem
+  POSTGRES_USER: cosmo_ecosystem_user
   POSTGRES_PASSWORD: test
   POSTGRES_HOST_AUTH_METHOD: trust
   # Credentials for the object storage service (ci/object-storage.gitlab-ci.yml)
@@ -22,7 +22,7 @@ variables:
   OBJECT_STORAGE_SECRET_KEY: "secretkey"
 
 # =========================================================================
-# Framework (root package: cosmo_suite/)
+# Framework (root package: cosmo_ecosystem/)
 # =========================================================================
 
 framework-lint:
@@ -32,8 +32,8 @@ framework-lint:
     - "pip install uv"
     - "uv sync"
   script:
-    - "uv run ruff format --check cosmo_suite test"
-    - "uv run ruff check cosmo_suite test"
+    - "uv run ruff format --check cosmo_ecosystem test"
+    - "uv run ruff check cosmo_ecosystem test"
     # uv.lock records the project version too, but it is derived, not a place to
     # maintain by hand — this fails if it is out of step with pyproject.toml.
     # The four hand-maintained version places are checked by test_version.py.
@@ -46,11 +46,11 @@ domain-free:
   image: "python:3.13"
   script:
     - |
-      if grep -rnE --include='*.py' 'csv_profiler|ProfileConfig|computation_module|validate_csv|profile_csv|CSV_UPLOAD' cosmo_suite/ ; then
-        echo "ERROR: domain (CSV-profiler) reference found in cosmo_suite/ — the framework package must stay domain-free."
+      if grep -rnE --include='*.py' 'csv_profiler|ProfileConfig|computation_module|validate_csv|profile_csv|CSV_UPLOAD' cosmo_ecosystem/ ; then
+        echo "ERROR: domain (CSV-profiler) reference found in cosmo_ecosystem/ — the framework package must stay domain-free."
         exit 1
       fi
-      echo "OK: cosmo_suite/ is domain-free."
+      echo "OK: cosmo_ecosystem/ is domain-free."
 
 # Framework-scope tests (static id enforcement, etc.) — no services needed.
 framework-test:
@@ -84,12 +84,12 @@ example-test:
   services:
     - name: "postgres:17"
       alias: postgres
-    - !reference [.cosmo-suite-object-storage, services]
+    - !reference [.cosmo-ecosystem-object-storage, services]
     - name: "redis:7-alpine"
       alias: redis
   before_script:
     - apt-get update && apt-get install -y postgresql-client curl rclone
-    - !reference [.cosmo-suite-object-storage, before_script]
+    - !reference [.cosmo-ecosystem-object-storage, before_script]
     - cd examples/csv_profiler
     - "cp env_ci .env"
     - "source .env"
