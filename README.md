@@ -34,8 +34,7 @@ cosmo-suite/
 
 ## Consuming the framework
 
-Apps consume `cosmo-suite` as a **pinned git-tag dependency** (not a clone), the
-way `dash_form_factory` is already shared across the suite:
+Apps consume `cosmo-suite` as a **pinned git-tag dependency** (not a clone):
 
 ```toml
 [project]
