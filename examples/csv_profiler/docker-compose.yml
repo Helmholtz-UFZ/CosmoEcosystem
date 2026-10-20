@@ -1,6 +1,6 @@
 # Host-published ports are parameterised as ${…_HOST_PORT:-<today's value>} so that
 # the three sister stacks (cosmopolitan, cosmonaut, csv_profiler) can run side by side
-# on one machine — see cosmo-suite/docs/plan/local-port-allocation.md for the
+# on one machine — see cosmo-ecosystem/docs/plan/local-port-allocation.md for the
 # allocation. With none of these variables set the resolved mappings are identical to
 # before, so CI and production are untouched.
 # Note the asymmetry: the left side is the *host* port, the right side stays fixed,
@@ -13,11 +13,11 @@
 # default would publish 8080 for anyone who sets only FLASK_PORT — a mismatch that
 # looks like the app not starting.
 services:
-  cosmo-suite:
-    image: cosmo-suite-webserver
-    container_name: cosmo-suite-webserver
+  cosmo-ecosystem:
+    image: cosmo-ecosystem-webserver
+    container_name: cosmo-ecosystem-webserver
     build:
-      # Repo root: the example depends on cosmo-suite by local path, so the
+      # Repo root: the example depends on cosmo-ecosystem by local path, so the
       # framework source must be in the build context.
       context: ../..
       dockerfile: examples/csv_profiler/docker/dev.Dockerfile
@@ -38,12 +38,12 @@ services:
     volumes:
       # Mount the whole repo (framework + example live) for reload; the anonymous
       # volume preserves the image-built venv over the bind mount.
-      - "../..:/python_docker/cosmo_suite"
-      - "/python_docker/cosmo_suite/examples/csv_profiler/.venv"
+      - "../..:/python_docker/cosmo_ecosystem"
+      - "/python_docker/cosmo_ecosystem/examples/csv_profiler/.venv"
 
-  cosmo-suite-worker:
-    image: cosmo-suite-worker
-    container_name: cosmo-suite-worker
+  cosmo-ecosystem-worker:
+    image: cosmo-ecosystem-worker
+    container_name: cosmo-ecosystem-worker
     build:
       context: ../..
       dockerfile: examples/csv_profiler/docker/worker.Dockerfile
@@ -62,12 +62,12 @@ services:
     volumes:
       # Mount the whole repo (framework + example live) for reload; the anonymous
       # volume preserves the image-built venv over the bind mount.
-      - "../..:/python_docker/cosmo_suite"
-      - "/python_docker/cosmo_suite/examples/csv_profiler/.venv"
+      - "../..:/python_docker/cosmo_ecosystem"
+      - "/python_docker/cosmo_ecosystem/examples/csv_profiler/.venv"
 
   redis:
     image: redis:7-alpine
-    container_name: redis_cosmo_suite
+    container_name: redis_cosmo_ecosystem
     ports:
       - "${REDIS_HOST_PORT:-6379}:6379"
     command: redis-server --appendonly yes
@@ -82,7 +82,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-    container_name: postgres_cosmo_suite
+    container_name: postgres_cosmo_ecosystem
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 2s
@@ -95,7 +95,7 @@ services:
   # and the block every app copies: docs/conventions/object_storage.md.
   object-storage:
     image: rustfs/rustfs:1.0.0
-    container_name: object_storage_cosmo_suite
+    container_name: object_storage_cosmo_ecosystem
     ports:
       - "${OBJECT_STORAGE_HOST_PORT:-9000}:9000"
       - "${OBJECT_STORAGE_CONSOLE_HOST_PORT:-9001}:9001" # Web console at /rustfs/console/

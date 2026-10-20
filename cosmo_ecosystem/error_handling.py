@@ -12,13 +12,13 @@ from dash import set_props
 from sqlalchemy.exc import DatabaseError, OperationalError
 from werkzeug.exceptions import NotFound
 
-from cosmo_suite.constants import (
+from cosmo_ecosystem.constants import (
     ERROR_MESSAGE_DIV_SHARED_ID,
     ERROR_MODAL_SHARED_ID,
     ERROR_TITLE_DIV_SHARED_ID,
     LOADING_OVERLAY_MODAL_SHARED_ID,
 )
-from cosmo_suite.object_storage_manager import ObjectStorageError
+from cosmo_ecosystem.object_storage_manager import ObjectStorageError
 
 log = logging.getLogger(__name__)
 
@@ -257,7 +257,7 @@ def handle_error(
             It exists because no framework entry can ever match an exception the
             framework cannot import. COSMOPOLITAN's ``FileValidationError``
             comes from ``soil_moisture_prediction.input_file_parser``: a
-            different class from ``cosmo_suite.error_handling.FileValidationError``
+            different class from ``cosmo_ecosystem.error_handling.FileValidationError``
             that happens to share its name, so the framework's entry is not a
             worse match for it — it is no match at all.
 

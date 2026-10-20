@@ -9,8 +9,8 @@ import dash_bootstrap_components as dbc
 from dash import html
 from flask import send_file, send_from_directory
 
-from cosmo_suite.constants import DOWNLOAD_BUTTON_SHARED_ID
-from cosmo_suite.job import Job
+from cosmo_ecosystem.constants import DOWNLOAD_BUTTON_SHARED_ID
+from cosmo_ecosystem.job import Job
 
 log = logging.getLogger(__name__)
 

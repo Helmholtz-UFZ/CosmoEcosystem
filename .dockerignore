@@ -1,4 +1,4 @@
-# Docker build context = repo root (the example depends on cosmo-suite by local
+# Docker build context = repo root (the example depends on cosmo-ecosystem by local
 # path, so the framework source must be in the context). Keep the context lean and
 # never copy host-built virtualenvs into the image.
 

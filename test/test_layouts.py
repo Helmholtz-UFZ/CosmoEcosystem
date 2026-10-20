@@ -1,4 +1,4 @@
-"""Tests for the seams in ``cosmo_suite.layouts``.
+"""Tests for the seams in ``cosmo_ecosystem.layouts``.
 
 Three of them, all covering things that fail without a word:
 
@@ -19,8 +19,8 @@ import dash
 import pytest
 from dash import html
 
-from cosmo_suite import layouts
-from cosmo_suite.constants import NAVBAR_COLLAPSE_DIV_SHARED_ID
+from cosmo_ecosystem import layouts
+from cosmo_ecosystem.constants import NAVBAR_COLLAPSE_DIV_SHARED_ID
 
 
 @pytest.fixture(autouse=True)
@@ -129,7 +129,7 @@ def test_create_header_id_is_keyword_only_in_practice():
 def test_layouts_registers_no_callback_at_import():
     """A library module must not put a callback into a consumer's registry.
 
-    ``cosmo_suite.layouts`` is imported by every framework page, so a
+    ``cosmo_ecosystem.layouts`` is imported by every framework page, so a
     module-level ``@callback`` here reaches every app that imports any page.
     COSMOPOLITAN's navbar worked purely as a side effect of that; COSMONAUT got
     a callback bound to an id it never mounts. Both silent, in opposite

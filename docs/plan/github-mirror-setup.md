@@ -9,25 +9,29 @@ repo-übergreifend ist und nur **eine** Quelle haben darf.
 ## 1. Ziel steht fest
 
 Die Suite ist Teil der **UFZ-Organisation** auf GitHub:
-`https://github.com/Helmholtz-UFZ` — Team `cosmo-suite` unter MET.
+`https://github.com/Helmholtz-UFZ` — Team `cosmo-suite` unter MET (Umbenennung in
+`cosmo-ecosystem` offen, siehe §6).
 
 | GitLab (Arbeitsort) | GitHub (Publikation) |
 |---|---|
-| `…/wg7/cosmo-suite` | `github.com/Helmholtz-UFZ/**CosmoSuite**` |
+| `…/wg7/cosmo-ecosystem` (vormals `cosmo-suite`) | `github.com/Helmholtz-UFZ/**CosmoEcosystem**` (vormals `CosmoSuite`) |
 | `…/wg7/cosmopolitan` | `github.com/Helmholtz-UFZ/Cosmopolitan` |
 | `…/wg7/cosmonaut` | `github.com/Helmholtz-UFZ/Cosmonaut` |
 
-> ⚠️ **Der Framework-Repo-Name weicht ab.** Das Python-Paket heißt `cosmo-suite`
-> (Import `cosmo_suite`), das GitHub-Repo `CosmoSuite`. Der Pin lautet deshalb
-> `"cosmo-suite @ git+https://github.com/Helmholtz-UFZ/CosmoSuite@v0.4.0"` — Paketname
-> links, Reponame in der URL. Das funktioniert (`uv` liest den Namen aus der geholten
-> `pyproject.toml`), sieht aber nach einem Tippfehler aus. **Nicht „korrigieren".**
+> ⚠️ **Der Framework-Repo-Name weicht ab.** Das Python-Paket heißt `cosmo-ecosystem`
+> (Import `cosmo_ecosystem`), das GitHub-Repo `CosmoEcosystem`. Der Pin lautet deshalb
+> `"cosmo-ecosystem @ git+https://github.com/Helmholtz-UFZ/CosmoEcosystem@v0.9.0"` —
+> Paketname links, Reponame in der URL. Das funktioniert (`uv` liest den Namen aus der
+> geholten `pyproject.toml`), sieht aber nach einem Tippfehler aus. **Nicht „korrigieren".**
+> PascalCase auf GitHub wie bei `Cosmonaut` und `Cosmopolitan`.
 >
-> **Entscheidung Louis (2026-08-19): `CosmoSuite` bleibt.** Der Name ist bewusst
-> gewählt, die Abweichung zum Paketnamen wird in Kauf genommen.
+> **Umbenannt (2026-10-20): `CosmoSuite` → `CosmoEcosystem`, ab v0.9.0.** Nach
+> Abstimmung mit dem WTT (03.09.2026) ersetzt „Cosmo Ecosystem" den Namen „Cosmo
+> Suite" in Manuskript, Repos und Zenodo; das eingereichte SoftwareX-Manuskript nennt
+> das Framework so. Abgelöst ist damit die Entscheidung vom 2026-08-19
+> („`CosmoSuite` bleibt"). Cosmonaut und Cosmopolitan behalten ihre Namen.
 >
-> **Und er kann sich später noch ändern.** Das hat zwei Folgen, die man vorher wissen
-> sollte:
+> Die beiden Folgen, die vor der Umbenennung hier notiert waren, gelten weiter:
 >
 > - **Der permanente Anker ist die Zenodo-DOI, nicht die GitHub-URL.** Genau deshalb
 >   gehört in C2 die DOI als „permanent link" und die GitHub-URL als Repository. Eine DOI
@@ -53,8 +57,8 @@ GitLab, auf GitHub läuft nichts.
 
 **Tags sind zwingend, nicht optional** — an drei Stellen:
 
-1. Der Dependency-Pin lautet `@v0.4.0`. Ohne gespiegelte Tags schlägt
-   `git+https://github.com/Helmholtz-UFZ/CosmoSuite@v0.4.0` fehl, und damit ist der
+1. Der Dependency-Pin nennt einen Tag (`@v0.9.0`). Ohne gespiegelte Tags schlägt
+   `git+https://github.com/Helmholtz-UFZ/CosmoEcosystem@v0.9.0` fehl, und damit ist der
    Zweck der ganzen Umstellung verfehlt.
 2. C1 der Metadaten-Tabelle nennt Versionen — ein Reviewer will den Stand auschecken,
    den das Paper beschreibt.
@@ -92,14 +96,14 @@ Fassung dieses Dokuments behauptete das Gegenteil — das war eine Annahme, kein
 
 ```bash
 # 1. Kamen die Tags mit? Das ist der Punkt, der den Pin bricht.
-git ls-remote --tags https://github.com/Helmholtz-UFZ/CosmoSuite | grep v0.4.0
+git ls-remote --tags https://github.com/Helmholtz-UFZ/CosmoEcosystem | grep v0.9.0
 
 # 2. Kamen NUR die gewollten Branches mit?
-git ls-remote --heads https://github.com/Helmholtz-UFZ/CosmoSuite
+git ls-remote --heads https://github.com/Helmholtz-UFZ/CosmoEcosystem
 
 # 3. Der Ernstfall: löst der Pin für einen Außenstehenden auf?
 uv pip install --system --dry-run \
-  "cosmo-suite @ git+https://github.com/Helmholtz-UFZ/CosmoSuite@v0.4.0"
+  "cosmo-ecosystem @ git+https://github.com/Helmholtz-UFZ/CosmoEcosystem@v0.9.0"
 ```
 
 Punkt 1 ist der wichtigste: ob *„only protected branches"* die Tags mitnimmt, ist der
@@ -109,7 +113,7 @@ Doku nicht sicher zu entnehmen. Zwei Sekunden Prüfung, und ohne sie bricht der 
 
 ## 5. Bekanntes, das mit der Historie öffentlich wird
 
-**Commit-Autorschaft:** In `cosmo-suite` sind 12 Commits als
+**Commit-Autorschaft:** In `cosmo-ecosystem` (damals `cosmo-suite`) sind 12 Commits als
 `LFT-W47 <louis.trinkle@gmail.com>` attribuiert — eine private Adresse, die mit der
 Historie öffentlich wird. Nicht kritisch, aber vor dem Mirror bewusst entscheiden:
 hinnehmen, oder für künftige Commits `git config user.email` auf die UFZ-Adresse setzen.
@@ -133,11 +137,12 @@ Plan als Gate festgehalten.
 
 | Schritt | Stand |
 |---|---|
-| Org + Team | ✅ `Helmholtz-UFZ`, Team `cosmo-suite` unter MET |
+| Org + Team | ✅ `Helmholtz-UFZ`, Team `cosmo-suite` unter MET · ⬜ Team → `cosmo-ecosystem` |
 | Egress GitLab-Runner → github.com | ✅ beide Runner-Pools inkl. dind-Imagebuild |
-| Lizenz/Copyright symmetrisch | ✅ cosmo-suite, ✅ cosmopolitan, ⬜ cosmonaut |
+| Lizenz/Copyright symmetrisch | ✅ cosmo-ecosystem, ✅ cosmopolitan, ⬜ cosmonaut |
 | Repos auf GitHub anlegen | ✅ public, leer, Team = Admin |
 | Push-Mirror je Repo | ✅ per SSH-Deploy-Key, Tags kommen mit |
 | Pin auf GitHub-URL (beide Apps) | ⬜ Phase B |
 | Release-Tags mit Zitations-Metadaten | ✅ `v0.4.1` / `0.2.4` / `0.3.5` |
-| Release + Zenodo-DOI | ⬜ Louis |
+| Release + Zenodo-DOI | ✅ Framework: Concept-DOI `10.5281/zenodo.21996475`, Apps: siehe deren `CITATION.cff` |
+| Rename → Cosmo Ecosystem | ⬜ Framework v0.9.0 · ⬜ GitLab-Pfad · ⬜ GitHub-Repo + Mirror-URL · ⬜ beide Apps neu gepinnt |

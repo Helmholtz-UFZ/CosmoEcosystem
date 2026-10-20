@@ -15,10 +15,10 @@ import plotly.express as px
 import plotly.graph_objects as go
 from dash import Input, Output, callback, dcc, html
 
-from cosmo_suite.error_handling import InvalidJobID, JobNotFound
-from cosmo_suite.files_route import create_download_button
-from cosmo_suite.job import Job
-from cosmo_suite.layouts import (
+from cosmo_ecosystem.error_handling import InvalidJobID, JobNotFound
+from cosmo_ecosystem.files_route import create_download_button
+from cosmo_ecosystem.job import Job
+from cosmo_ecosystem.layouts import (
     create_job_header,
     job_not_found_layout,
     landing_page_layout_column,

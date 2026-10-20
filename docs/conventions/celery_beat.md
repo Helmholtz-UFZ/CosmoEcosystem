@@ -55,7 +55,7 @@ production image did not use.
 ```dockerfile
 # docker/worker.Dockerfile
 CMD echo "Starting Celery worker..." && \
-    python3 -m cosmo_suite.object_storage_manager setup_remote && \
+    python3 -m cosmo_ecosystem.object_storage_manager setup_remote && \
     exec celery -A <app>.celery_app.celery worker \
         --queues=default,... \
         --beat \

@@ -1,6 +1,6 @@
 ## Project Overview
 
-Cosmo Suite is the shared Dash + Celery + PostgreSQL + S3 application framework used
+Cosmo Ecosystem is the shared Dash + Celery + PostgreSQL + S3 application framework used
 by COSMOPOLITAN and COSMONAUT. This repo is the framework's home; it also ships a
 reference domain, `examples/csv_profiler/` — a CSV statistical profiler — that
 demonstrates how to integrate a Python computation module into the framework.

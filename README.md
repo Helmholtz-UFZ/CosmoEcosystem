@@ -1,9 +1,9 @@
 [![DOI](https://zenodo.org/badge/1338235120.svg)](https://doi.org/10.5281/zenodo.21996475)
 
-# Cosmo Suite
+# Cosmo Ecosystem
 
 The shared **Dash + Celery + PostgreSQL + S3** application framework at the core of
-the suite of sister apps [COSMOPOLITAN](https://github.com/Helmholtz-UFZ/Cosmopolitan) and
+the sister apps [COSMOPOLITAN](https://github.com/Helmholtz-UFZ/Cosmopolitan) and
 [COSMONAUT](https://github.com/Helmholtz-UFZ/Cosmonaut). The framework owns the *workflow machinery*: the app
 shell, job lifecycle, Celery wiring, object storage, logging, error handling, and the
 infra/ops pages, while a **domain** provides *what flows through it* (its config model,
@@ -11,9 +11,14 @@ computation, forms, and workflow pages).
 
 
 > **This is a read-only mirror.** Development happens at
-> [codebase.helmholtz.cloud/…/cosmo-suite](https://codebase.helmholtz.cloud/ufz/tb5-smm/met/wg7/cosmo-suite). Issues and merge requests
+> [codebase.helmholtz.cloud/…/cosmo-ecosystem](https://codebase.helmholtz.cloud/ufz/tb5-smm/met/wg7/cosmo-ecosystem). Issues and merge requests
 > belong there. This copy exists so the software has a citable public home,
 > anything pushed here is overwritten by the next mirror sync.
+
+> **Formerly `cosmo-suite`** (and before that `cosmo-framework` / `cosmo-template`).
+> Renamed in v0.9.0; the old GitLab and GitHub paths redirect here, and the Zenodo
+> concept DOI is unchanged.
+
 This repo is the framework's home. It also ships a reference domain,
 [`examples/csv_profiler/`](examples/csv_profiler/), a CSV statistical profiler, that
 depends on the framework and is the recommended starting point for a new app.
@@ -21,25 +26,25 @@ depends on the framework and is the recommended starting point for a new app.
 ## Repo layout
 
 ```
-cosmo-suite/
-├── cosmo_suite/        # the published package (domain-free), the wheel
+cosmo-ecosystem/
+├── cosmo_ecosystem/        # the published package (domain-free), the wheel
 ├── examples/csv_profiler/  # reference domain: depends on the framework, NOT in the wheel
-│   ├── csv_profiler/        # the example's Python package (app, ProfileConfig, pages, …)
+│   ├── csv_profiler/       # the example's Python package (app, ProfileConfig, pages, …)
 │   ├── docker/  docker-compose.yml  dev_up.sh  run_pytest.sh  env_*  # its runtime
-│   └── test/                # the integration/e2e suite
+│   └── test/               # the integration/e2e suite
 ├── test/                   # framework-scope tests (html-id enforcement)
 ├── docs/                   # design docs + conventions
-└── pyproject.toml          # name = "cosmo-suite"; wheel packages = ["cosmo_suite"]
+└── pyproject.toml          # name = "cosmo-ecosystem"; wheel packages = ["cosmo_ecosystem"]
 ```
 
 ## Consuming the framework
 
-Apps consume `cosmo-suite` as a **pinned git-tag dependency** (not a clone):
+Apps consume `cosmo-ecosystem` as a **pinned git-tag dependency** (not a clone):
 
 ```toml
 [project]
 dependencies = [
-    "cosmo-suite @ git+https://codebase.helmholtz.cloud/.../cosmo-suite@v0.8.1",
+    "cosmo-ecosystem @ git+https://codebase.helmholtz.cloud/.../cosmo-ecosystem@v0.9.0",
 ]
 
 [tool.hatch.metadata]
@@ -66,22 +71,22 @@ Two things bite every consumer, and neither announces itself as a framework prob
 
 Copy `examples/csv_profiler/` as your starting point, replace the domain pieces
 (`ProfileConfig`, `computation_module`, `forms`, workflow pages, computation task), and
-point the `cosmo-suite` dependency at a released tag.
+point the `cosmo-ecosystem` dependency at a released tag.
 
 ### `--local-core` dev loop
 
 To develop the framework and an app together, mount the framework source into the
 running containers instead of using the installed copy (see
-`examples/csv_profiler/docker-compose.local_pkg.yml`): mount `../../cosmo_suite`
+`examples/csv_profiler/docker-compose.local_pkg.yml`): mount `../../cosmo_ecosystem`
 and prepend it to `PYTHONPATH`. The mount target is the directory *containing*
-`cosmo_suite`. Within this monorepo the example already resolves the framework from
+`cosmo_ecosystem`. Within this monorepo the example already resolves the framework from
 the local path (`[tool.uv.sources]` in the example's `pyproject.toml`), so
 `uv sync` in `examples/csv_profiler/` runs it against the working tree.
 
 ### Releasing (two-step, tagged)
 
 1. Publish the framework: bump `version` in `pyproject.toml` and tag it on `main`.
-2. Bump the `cosmo-suite` pin in each consumer's `pyproject.toml` **and** `uv.lock`,
+2. Bump the `cosmo-ecosystem` pin in each consumer's `pyproject.toml` **and** `uv.lock`,
    and the `ref:` of its `ci/object-storage.gitlab-ci.yml` include.
 
 **The pin bump must land on `main` and be tagged before any image build**: a scheduled
@@ -93,7 +98,7 @@ the old framework.
 The framework owns the **shell + infra/ops pages** and the job/task machinery; the
 **workflow pages** stay domain-side until the Layer-B page/result seam:
 
-| Framework (`cosmo_suite/`)                                   | Domain (`examples/csv_profiler/`)                    |
+| Framework (`cosmo_ecosystem/`)                                    | Domain (`examples/csv_profiler/`)                    |
 | ---------------------------------------------------------------- | ---------------------------------------------------- |
 | `job.py` (generic `Job` + 3 injected seams), `layouts.py` (shell)| `app.py` (composes shell + wires seams), `forms.py`  |
 | `background_job_manager.py`, `celery_app.py`/`celery_config.py`  | `pydantic_models.py` (`ProfileConfig`), `computation_module.py` |
@@ -101,7 +106,7 @@ The framework owns the **shell + infra/ops pages** and the job/task machinery; t
 | pages: `logs`, `job_management`, `worker_management`             | pages: `home`, `input`, `results`, `job_submission`  |
 
 The framework package is kept **domain-free**: a CI gate fails if any CSV-profiler
-reference appears under `cosmo_suite/`.
+reference appears under `cosmo_ecosystem/`.
 
 ## Running the example
 

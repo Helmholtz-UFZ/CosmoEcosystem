@@ -1,4 +1,4 @@
-# The S3 server every Cosmo Suite test job runs against. The one place that knows
+# The S3 server every Cosmo Ecosystem test job runs against. The one place that knows
 # which server it is: the image pin, its credential variables and its health path.
 # Production does not use it — prod and stage talk to UFZ S3.
 #
@@ -7,23 +7,23 @@
 # replaces the job's own services and before_script lists instead of adding to them.
 #
 #   include:
-#     - project: "ufz/tb5-smm/met/wg7/cosmo-suite"
-#       ref: "vX.Y.Z"  # the tag of the cosmo-suite pin in pyproject.toml
+#     - project: "ufz/tb5-smm/met/wg7/cosmo-ecosystem"
+#       ref: "vX.Y.Z"  # the tag of the cosmo-ecosystem pin in pyproject.toml
 #       file: "/ci/object-storage.gitlab-ci.yml"
 #
 #   test:
 #     services:
-#       - !reference [.cosmo-suite-object-storage, services]
+#       - !reference [.cosmo-ecosystem-object-storage, services]
 #       - ...
 #     before_script:
-#       - !reference [.cosmo-suite-object-storage, before_script]
+#       - !reference [.cosmo-ecosystem-object-storage, before_script]
 #       - ...
 #
 # The job needs OBJECT_STORAGE_ACCESS_KEY / OBJECT_STORAGE_SECRET_KEY as CI
 # variables, and its env file OBJECT_STORAGE_HOST="http://object-storage:9000".
 # See docs/conventions/object_storage.md.
 
-.cosmo-suite-object-storage:
+.cosmo-ecosystem-object-storage:
   services:
     - name: "rustfs/rustfs:1.0.0"
       alias: "object-storage"

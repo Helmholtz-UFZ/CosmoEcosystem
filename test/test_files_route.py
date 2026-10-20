@@ -12,7 +12,7 @@ import zipfile
 import dash
 import pytest
 
-from cosmo_suite.files_route import serve_files
+from cosmo_ecosystem.files_route import serve_files
 
 
 class FakeJob:

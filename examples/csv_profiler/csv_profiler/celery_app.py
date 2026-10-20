@@ -9,9 +9,9 @@ process, and exposes ``celery`` for:
 
 from importlib.metadata import version
 
-from cosmo_suite.celery_app import app
-from cosmo_suite.db_manager import DbManager
-from cosmo_suite.job import Job
+from cosmo_ecosystem.celery_app import app
+from cosmo_ecosystem.db_manager import DbManager
+from cosmo_ecosystem.job import Job
 
 from csv_profiler.background_job_manager import (
     NAME_COMPUTATION_TASK,

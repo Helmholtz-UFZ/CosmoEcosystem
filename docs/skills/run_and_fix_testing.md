@@ -1,6 +1,6 @@
 # Skill: Run and Fix Failing Tests
 
-Step-by-step checklist for running tests, diagnosing failures, and fixing issues in the Cosmo Suite test suite.
+Step-by-step checklist for running tests, diagnosing failures, and fixing issues in the Cosmo Ecosystem test suite.
 
 ---
 
@@ -81,9 +81,9 @@ open test/artifacts/<test-dir>/page.html
 
 | Error | Cause | Fix |
 |-------|-------|-----|
-| `PostgreSQL not available` | DB container failed health check | `docker logs postgres_cosmo_suite` |
-| `Object storage did not start` / `Object storage (S3) connectivity check failed` | S3 server unhealthy or unreachable | `docker logs object_storage_cosmo_suite` |
-| `Redis not available` | Redis failed health check | `docker logs redis_cosmo_suite` |
+| `PostgreSQL not available` | DB container failed health check | `docker logs postgres_cosmo_ecosystem` |
+| `Object storage did not start` / `Object storage (S3) connectivity check failed` | S3 server unhealthy or unreachable | `docker logs object_storage_cosmo_ecosystem` |
+| `Redis not available` | Redis failed health check | `docker logs redis_cosmo_ecosystem` |
 | Port already in use | Leftover Docker containers or another process on 5434/9020/6381 | 1. `docker compose down` in the current project first. 2. If persists, tell the user which port is blocked — a sibling project (cosmopolitan, etc.) may be running in parallel and only the user knows which is safe to stop. |
 | Docker not running | Docker daemon not started | `sudo systemctl start docker` |
 
@@ -148,25 +148,25 @@ If tests require services and startup errors occur, verify each service manually
 **PostgreSQL:**
 
 ```bash
-docker ps | grep postgres_cosmo_suite
-docker logs postgres_cosmo_suite
-docker exec postgres_cosmo_suite pg_isready -U cosmo_suite_user
+docker ps | grep postgres_cosmo_ecosystem
+docker logs postgres_cosmo_ecosystem
+docker exec postgres_cosmo_ecosystem pg_isready -U cosmo_ecosystem_user
 ```
 
 **Object storage (RustFS):**
 
 ```bash
-docker ps | grep object_storage_cosmo_suite
-docker logs object_storage_cosmo_suite
+docker ps | grep object_storage_cosmo_ecosystem
+docker logs object_storage_cosmo_ecosystem
 curl -sf http://localhost:9020/health/ready
 ```
 
 **Redis:**
 
 ```bash
-docker ps | grep redis_cosmo_suite
-docker logs redis_cosmo_suite
-docker exec redis_cosmo_suite redis-cli ping
+docker ps | grep redis_cosmo_ecosystem
+docker logs redis_cosmo_ecosystem
+docker exec redis_cosmo_ecosystem redis-cli ping
 ```
 
 **Clean up and restart:**
@@ -184,7 +184,7 @@ docker compose down
 If lingering containers cause port conflicts:
 
 ```bash
-docker ps -a | grep cosmo-suite
+docker ps -a | grep cosmo-ecosystem
 docker compose down --remove-orphans
 ```
 

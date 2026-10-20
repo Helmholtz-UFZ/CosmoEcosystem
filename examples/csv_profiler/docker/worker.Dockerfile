@@ -34,14 +34,14 @@ RUN rclone --version
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-WORKDIR /python_docker/cosmo_suite
+WORKDIR /python_docker/cosmo_ecosystem
 
 # Build context is the repo root (see dev.Dockerfile): copy the repo, then install
-# the EXAMPLE project (which pulls cosmo-suite editable from ../..) into its venv.
+# the EXAMPLE project (which pulls cosmo-ecosystem editable from ../..) into its venv.
 COPY --chown=appuser:appuser . .
 
-WORKDIR /python_docker/cosmo_suite/examples/csv_profiler
-ENV PATH="/python_docker/cosmo_suite/examples/csv_profiler/.venv/bin:$PATH"
+WORKDIR /python_docker/cosmo_ecosystem/examples/csv_profiler
+ENV PATH="/python_docker/cosmo_ecosystem/examples/csv_profiler/.venv/bin:$PATH"
 RUN uv sync --frozen
 
 # Switch to non-root user
@@ -59,7 +59,7 @@ USER appuser
 # process (see app.py), and it relies on there being exactly one worker container:
 # a second replica would run every scheduled task twice.
 CMD echo "Starting Celery worker..." && \
-    python3 /python_docker/cosmo_suite/cosmo_suite/object_storage_manager.py setup_remote && \
+    python3 /python_docker/cosmo_ecosystem/cosmo_ecosystem/object_storage_manager.py setup_remote && \
     exec celery -A csv_profiler.celery_app.celery worker \
         --loglevel=debug \
         --concurrency=4 \

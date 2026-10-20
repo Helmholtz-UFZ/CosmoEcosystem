@@ -1,6 +1,6 @@
 # Convention: the config-model contract (`UploadJobConfig`)
 
-A `cosmo_suite` `Job` is generic over its configuration `model`. A domain
+A `cosmo_ecosystem` `Job` is generic over its configuration `model`. A domain
 plugs its configuration into the framework by injecting four class attributes on
 `Job` at application startup — in **both** the web app (`app.py`) and the Celery
 worker entrypoint (`celery_app.py`), **before any `Job` is constructed**:
@@ -15,7 +15,7 @@ Job.app_version    = version("csv-profiler")              # optional; provenance
 ## The `config_model` contract
 
 `Job.config_model` MUST be a subclass of
-`cosmo_suite.pydantic_models.UploadJobConfig`, which provides the two fields the
+`cosmo_ecosystem.pydantic_models.UploadJobConfig`, which provides the two fields the
 framework `Job` relies on generically:
 
 - **`job_id: str`** — validated by `validate_job_id`; the job's identity.
@@ -38,7 +38,7 @@ missing column).
 
 | Your app… | Subclass |
 |---|---|
-| uses `cosmo_suite.job.Job` | **`UploadJobConfig`** |
+| uses `cosmo_ecosystem.job.Job` | **`UploadJobConfig`** |
 | keeps its own `Job` class | **`BaseJobConfig`** (job_id contract only) |
 
 `Job.config_model` is **fail-loud**: it defaults to `None`, and constructing a
@@ -60,7 +60,7 @@ unset seam there silently stamps the framework version on worker-created jobs.
 ## Why injection, not import
 
 Injecting the config model (rather than importing it) is what keeps
-`cosmo_suite` domain-free: the package never imports the domain, and CI
+`cosmo_ecosystem` domain-free: the package never imports the domain, and CI
 enforces this with a grep gate. This is the Phase-1 minimal seam; the full
 `DomainPlugin` protocol/registry is Layer B (see
 `docs/plan/cosmo-core-package-boundary.md`).

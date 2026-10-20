@@ -39,8 +39,8 @@ COMPOSE="docker compose -f docker-compose.yml"
 # Rebuild images when uv.lock or Dockerfiles change
 CURRENT_HASH="$(sha256sum uv.lock docker/dev.Dockerfile docker/worker.Dockerfile 2>/dev/null)"
 if [ ! -e ".docker_build_hash" ] || [ "$CURRENT_HASH" != "$(cat .docker_build_hash)" ]; then
-    $COMPOSE build cosmo-suite
-    $COMPOSE build cosmo-suite-worker
+    $COMPOSE build cosmo-ecosystem
+    $COMPOSE build cosmo-ecosystem-worker
 
     echo "$CURRENT_HASH" >.docker_build_hash
 fi
@@ -53,6 +53,6 @@ cleaning_up() {
 trap cleaning_up EXIT
 
 $COMPOSE down
-docker rm -f postgres_cosmo_suite 2>/dev/null || true
+docker rm -f postgres_cosmo_ecosystem 2>/dev/null || true
 
-$COMPOSE up --no-log-prefix --attach cosmo-suite
+$COMPOSE up --no-log-prefix --attach cosmo-ecosystem

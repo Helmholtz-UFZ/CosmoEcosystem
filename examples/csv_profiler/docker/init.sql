@@ -1,5 +1,5 @@
 -- init.sql
--- Database schema for Cosmo Suite application
+-- Database schema for Cosmo Ecosystem application
 --
 -- This file contains all application-specific tables.
 -- Celery uses Redis for both broker and result backend, no database tables needed.

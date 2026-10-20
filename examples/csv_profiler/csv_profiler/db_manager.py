@@ -8,7 +8,7 @@ supplies the intersection columns via ``JobColumns`` and the machinery via
 
 from sqlalchemy import JSON, Column, String
 
-from cosmo_suite.db_manager import Base, JobColumns
+from cosmo_ecosystem.db_manager import Base, JobColumns
 
 
 class JobTable(JobColumns, Base):

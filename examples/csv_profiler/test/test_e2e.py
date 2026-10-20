@@ -12,8 +12,8 @@ import pytest
 
 from playwright.sync_api import expect
 
-from cosmo_suite.config import PORT
-from cosmo_suite.constants import (
+from cosmo_ecosystem.config import PORT
+from cosmo_ecosystem.constants import (
     DOWNLOAD_BUTTON_SHARED_ID,
     NAVBAR_COLLAPSE_DIV_SHARED_ID,
     NAVBAR_TOGGLER_BUTTON_SHARED_ID,

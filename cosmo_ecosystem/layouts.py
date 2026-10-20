@@ -6,7 +6,7 @@ import logging
 
 from dash import Input, Output, State, callback, callback_context, dcc, html
 
-from cosmo_suite.constants import (
+from cosmo_ecosystem.constants import (
     LOADING_OVERLAY_MODAL_SHARED_ID,
     NAVBAR_COLLAPSE_DIV_SHARED_ID,
     NAVBAR_TOGGLER_BUTTON_SHARED_ID,
@@ -17,8 +17,8 @@ from cosmo_suite.constants import (
     RESET_JOB_STORE_SHARED_ID,
     URL_LOCATION_SHARED_ID,
 )
-from cosmo_suite.error_handling import error_modal
-from cosmo_suite.job import Job
+from cosmo_ecosystem.error_handling import error_modal
+from cosmo_ecosystem.job import Job
 
 reset_confirm_modal = dbc.Modal(
     [
@@ -117,9 +117,9 @@ def create_navbar():
                                 width="30",
                                 height="30",
                                 className="d-inline-block align-text-top",
-                                alt="Cosmo Suite Icon",
+                                alt="Cosmo Ecosystem Icon",
                             ),
-                            " Cosmo Suite",
+                            " Cosmo Ecosystem",
                         ],
                     ),
                     dbc.NavbarToggler(id=NAVBAR_TOGGLER_BUTTON_SHARED_ID),
@@ -186,7 +186,7 @@ def register_navbar_callbacks():
     rather than a line inside ``app_layout``.
 
     Until v0.6.2 the callback sat at module level, so the mere
-    ``import cosmo_suite.layouts`` that every framework page performs registered
+    ``import cosmo_ecosystem.layouts`` that every framework page performs registered
     it. That made it invisible in both directions:
 
     - COSMOPOLITAN mounts the framework id in its own navbar and has no callback
@@ -315,9 +315,9 @@ def landing_page_layout_column(
 # only that page. Same rule as the `Job` class attributes: configure the seam,
 # then import. See docs/conventions/framework_page_imports.md.
 #
-#     import cosmo_suite.layouts
-#     cosmo_suite.layouts.default_wrapper_class = "cosmonaut-page"
-#     import cosmo_suite.pages.job_management  # noqa: E402
+#     import cosmo_ecosystem.layouts
+#     cosmo_ecosystem.layouts.default_wrapper_class = "cosmonaut-page"
+#     import cosmo_ecosystem.pages.job_management  # noqa: E402
 #
 # Assign the module attribute; a `from … import default_wrapper_class` binds a
 # copy of the value and configures nothing.

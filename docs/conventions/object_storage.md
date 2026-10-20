@@ -13,7 +13,7 @@ the server.
 
 The framework speaks plain S3 and nothing else. rclone does the transfers
 (`provider=Other`, path style, region `us-east-1`), and boto3 signs the download
-URLs. Nothing in `cosmo_suite/` knows which server sits behind
+URLs. Nothing in `cosmo_ecosystem/` knows which server sits behind
 `OBJECT_STORAGE_HOST`.
 
 ## Rules
@@ -38,7 +38,7 @@ URLs. Nothing in `cosmo_suite/` knows which server sits behind
 
 ## Wiring up a new app
 
-1. Pin `cosmo-suite` in `pyproject.toml` (see the README).
+1. Pin `cosmo-ecosystem` in `pyproject.toml` (see the README).
 2. CI: add the include and the two `!reference` lines, set
    `OBJECT_STORAGE_ACCESS_KEY` / `OBJECT_STORAGE_SECRET_KEY` as job variables, and
    put `OBJECT_STORAGE_HOST="http://object-storage:9000"` in the CI env file.
@@ -128,7 +128,7 @@ image differ.
   fail only when someone uses it.
 - **botocore must stay out of the logs.** At DEBUG it writes about 60 records per
   signed URL, the signature among them — enough to rebuild a working link from the
-  logs page. `cosmo_suite.logger` mutes `boto3`, `botocore` and `s3transfer` for
+  logs page. `cosmo_ecosystem.logger` mutes `boto3`, `botocore` and `s3transfer` for
   every consumer; v0.8.0 shipped without that.
 - **URLs signed in a local run point at `localhost`**, so a phone scanning the QR
   code cannot reach them. That is expected.

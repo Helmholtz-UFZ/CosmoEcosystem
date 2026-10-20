@@ -1,6 +1,6 @@
 # Skill: Create a New Page
 
-Step-by-step checklist for adding a new page to the Cosmo Suite Dash application.
+Step-by-step checklist for adding a new page to the Cosmo Ecosystem Dash application.
 
 ---
 
@@ -66,7 +66,7 @@ register_page(
     __name__,
     path="/my-page",
     name="My Page",
-    title="Cosmo Suite - My Page",
+    title="Cosmo Ecosystem - My Page",
     description="Brief description of the page.",
 )
 
@@ -75,7 +75,7 @@ register_page(
     __name__,
     path_template="/job/<job_id>/my-page",
     name="My Page",
-    title="Cosmo Suite - My Page",
+    title="Cosmo Ecosystem - My Page",
     description="Brief description of the page.",
 )
 ```
@@ -318,7 +318,7 @@ register_page(
     __name__,
     path="/my-page",
     name="My Page",
-    title="Cosmo Suite - My Page",
+    title="Cosmo Ecosystem - My Page",
     description="Brief description.",
 )
 
@@ -388,7 +388,7 @@ register_page(
     __name__,
     path_template="/job/<job_id>/my-page",
     name="My Page",
-    title="Cosmo Suite - My Page",
+    title="Cosmo Ecosystem - My Page",
     description="Brief description.",
 )
 

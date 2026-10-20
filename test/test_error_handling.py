@@ -17,12 +17,12 @@ from dash._callback_context import context_value
 from dash._utils import AttributeDict
 from werkzeug.exceptions import NotFound
 
-from cosmo_suite.constants import (
+from cosmo_ecosystem.constants import (
     ERROR_MESSAGE_DIV_SHARED_ID,
     ERROR_MODAL_SHARED_ID,
     ERROR_TITLE_DIV_SHARED_ID,
 )
-from cosmo_suite.error_handling import (
+from cosmo_ecosystem.error_handling import (
     EXPECTED_ERRORS,
     USE_ERROR_MESSAGE,
     InvalidJobID,

@@ -2,11 +2,11 @@
 
 ## One `Base` per process
 
-`cosmo_suite.db_manager.Base` is the framework's declarative registry and a
-**documented export point**. Every table in a Cosmo Suite process belongs on it:
+`cosmo_ecosystem.db_manager.Base` is the framework's declarative registry and a
+**documented export point**. Every table in a Cosmo Ecosystem process belongs on it:
 
 ```python
-from cosmo_suite.db_manager import Base
+from cosmo_ecosystem.db_manager import Base
 
 class RouteTable(Base):
     __tablename__ = "routes"
@@ -37,10 +37,10 @@ framework's part was making that possible; doing it is still up to each app.
 
 ## `JobColumns`: the framework supplies columns, the app supplies the table
 
-Through `v0.5.0` `cosmo_suite.db_manager.JobTable` was a concrete class mapped
+Through `v0.5.0` `cosmo_ecosystem.db_manager.JobTable` was a concrete class mapped
 directly onto the framework's `Base`. Importing any framework module that
-touched jobs — `cosmo_suite.job`, `cosmo_suite.files_route` (its default
-`job_class=Job` pulls `cosmo_suite.job` in) — registered a `jobs` table on
+touched jobs — `cosmo_ecosystem.job`, `cosmo_ecosystem.files_route` (its default
+`job_class=Job` pulls `cosmo_ecosystem.job` in) — registered a `jobs` table on
 `Base.metadata`, and no app could then declare its own.
 
 `v0.6.0` replaces it with `JobColumns`, an unmapped mixin:
@@ -59,7 +59,7 @@ Each app declares its own concrete class from it, on the framework `Base`,
 alongside whatever extra columns its own `jobs` table carries:
 
 ```python
-from cosmo_suite.db_manager import Base, JobColumns
+from cosmo_ecosystem.db_manager import Base, JobColumns
 
 class JobTable(JobColumns, Base):
     __tablename__ = "jobs"

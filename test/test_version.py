@@ -19,19 +19,21 @@ import re
 import tomllib
 from pathlib import Path
 
+from cosmo_ecosystem.job import FRAMEWORK_VERSION
+
 REPO_ROOT = Path(__file__).parent.parent
 
 PYPROJECT = REPO_ROOT / "pyproject.toml"
 CITATION = REPO_ROOT / "CITATION.cff"
 
-# The files carrying a `cosmo-suite@vX.Y.Z` pin example for a consumer. Every
+# The files carrying a `cosmo-ecosystem@vX.Y.Z` pin example for a consumer. Every
 # occurrence in them has to name the current version — scanned rather than
 # addressed by line number, so a second example added later is covered too.
 PIN_EXAMPLE_FILES = (
     REPO_ROOT / "README.md",
     REPO_ROOT / "examples" / "csv_profiler" / "pyproject.toml",
 )
-PIN_PATTERN = re.compile(r"cosmo-suite@v(\d+\.\d+\.\d+)")
+PIN_PATTERN = re.compile(r"cosmo-ecosystem@v(\d+\.\d+\.\d+)")
 
 # CITATION.cff is YAML, but pyyaml is not a dependency of this project and one
 # top-level key is not worth making it one.
@@ -82,7 +84,18 @@ def test_every_pin_example_file_actually_carries_one():
     """
     for path in PIN_EXAMPLE_FILES:
         assert PIN_PATTERN.search(path.read_text()), (
-            f"{path.relative_to(REPO_ROOT)} carries no `cosmo-suite@vX.Y.Z` pin "
+            f"{path.relative_to(REPO_ROOT)} carries no `cosmo-ecosystem@vX.Y.Z` pin "
             "example any more — drop it from PIN_EXAMPLE_FILES or restore the "
             "example, but do not leave this test checking nothing."
         )
+
+
+def test_job_records_the_installed_framework_version():
+    """``job.FRAMEWORK_VERSION`` looks the distribution up by its *name*.
+
+    A missing distribution falls back to ``"unknown"`` on purpose (provenance,
+    never control flow), so a name that no longer matches ``pyproject.toml`` —
+    exactly what a rename leaves behind — would stamp every new job ``"unknown"``
+    with a green suite. Comparing against ``pyproject.toml`` makes it loud.
+    """
+    assert FRAMEWORK_VERSION == project_version()

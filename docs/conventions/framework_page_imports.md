@@ -3,9 +3,9 @@
 An app registers a framework page by importing it:
 
 ```python
-import cosmo_suite.pages.logs           # noqa: F401
-import cosmo_suite.pages.job_management  # noqa: F401
-import cosmo_suite.pages.worker_management  # noqa: F401
+import cosmo_ecosystem.pages.logs           # noqa: F401
+import cosmo_ecosystem.pages.job_management  # noqa: F401
+import cosmo_ecosystem.pages.worker_management  # noqa: F401
 ```
 
 That import does far more than add a route. Dash pages register themselves, and
@@ -23,9 +23,9 @@ no failing test, and a symptom that surfaces somewhere else entirely.**
 
 | Importing … | also imports | which registers |
 | --- | --- | --- |
-| any framework page | `cosmo_suite.layouts` | nothing since v0.7.0 — the navbar-collapse callback used to be here, see [silent failure 4](#4-an-import-registers-a-callback-and-a-consumer-never-asked) |
-| `pages.job_management` | `cosmo_suite.job`, `cosmo_suite.db_manager`, `cosmo_suite.tasks.maintenance_tasks` | its own page + three callbacks |
-| `pages.worker_management` | `cosmo_suite.background_job_manager` | its own page + eleven callbacks, one of them clientside |
+| any framework page | `cosmo_ecosystem.layouts` | nothing since v0.7.0 — the navbar-collapse callback used to be here, see [silent failure 4](#4-an-import-registers-a-callback-and-a-consumer-never-asked) |
+| `pages.job_management` | `cosmo_ecosystem.job`, `cosmo_ecosystem.db_manager`, `cosmo_ecosystem.tasks.maintenance_tasks` | its own page + three callbacks |
+| `pages.worker_management` | `cosmo_ecosystem.background_job_manager` | its own page + eleven callbacks, one of them clientside |
 | `layouts.app_layout()` | — | the navbar-collapse callback on `NAVBAR_TOGGLER_BUTTON_SHARED_ID` / `NAVBAR_COLLAPSE_DIV_SHARED_ID` — it mounts that navbar |
 | `layouts.app_layout(with_reset=True)` | — | the above **plus** the two job-reset callbacks |
 | `layouts.register_navbar_callbacks()` | — | the navbar-collapse callback, for an app that mounts the shared id in a navbar of its own |
@@ -47,7 +47,7 @@ Two consequences follow from "at import time":
 
 ### 1. A duplicate callback aborts the whole registry
 
-If the app already registers a callback on an id that `cosmo_suite.layouts`
+If the app already registers a callback on an id that `cosmo_ecosystem.layouts`
 claims, Dash does not fail that one callback. It aborts the **entire** callback
 registry, so the visible symptom is an unrelated page that has simply stopped
 reacting to clicks. COSMOPOLITAN hit this in Slice 1b and resolved it by dropping
@@ -55,7 +55,7 @@ its local duplicate; COSMONAUT will meet it in Slice 2, the first time it calls
 `layouts.app_layout()`.
 
 **Rule:** before importing a framework page, check the ids in
-`cosmo_suite/constants/html_ids.py` marked `SHARED` against the app's own
+`cosmo_ecosystem/constants/html_ids.py` marked `SHARED` against the app's own
 callbacks. A collision is resolved by removing the app's copy, not by aliasing
 the id — two callbacks writing the same component is the bug, whatever it is
 called.
@@ -83,7 +83,7 @@ wrap the foreign one at the boundary where it is raised.
 `WEB_WORK_DIR` shipped as `./work_dir` in the `.env` files. Flask's
 `send_from_directory` resolves a relative directory against `app.root_path` — the
 *installed app package* — not against the process's working directory. Every job
-file 404s, and nothing else breaks. `cosmo_suite/config.py` now absolutises the
+file 404s, and nothing else breaks. `cosmo_ecosystem/config.py` now absolutises the
 value at import time, and the comment there records why.
 
 **Rule:** any path a consumer configures is absolutised where the framework reads
@@ -92,7 +92,7 @@ of the container's working directory.
 
 ### 4. An import registers a callback, and a consumer never asked
 
-Until v0.7.0, `cosmo_suite/layouts.py` carried `toggle_navbar_collapse` as a
+Until v0.7.0, `cosmo_ecosystem/layouts.py` carried `toggle_navbar_collapse` as a
 module-level `@callback`. Every framework page imports `layouts`, so importing
 any page registered it. Measured on `origin/main` of both apps, that one line did
 two different silent things:
@@ -112,7 +112,7 @@ opening on small screens, with no error, no log line and no failing test.
 none" — the defect is the import, not the framework. A function that mounts a
 component and wires that same component in the same call is co-location, and
 `app_layout()` does exactly that with the navbar. What must never happen is
-`import cosmo_suite.layouts` doing it behind an app's back.
+`import cosmo_ecosystem.layouts` doing it behind an app's back.
 
 A page module is the deliberate exception in the other direction: registering
 itself at import is what a page is *for*.

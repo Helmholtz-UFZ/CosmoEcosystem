@@ -1,4 +1,4 @@
-"""Tests for ``cosmo_suite.object_storage_manager`` that need no running store.
+"""Tests for ``cosmo_ecosystem.object_storage_manager`` that need no running store.
 
 The transfer paths need a real S3 server and are covered by the example suite.
 What is checked here fails quietly in production instead of loudly in a test:
@@ -23,8 +23,8 @@ from datetime import timedelta
 
 import pytest
 
-from cosmo_suite import logger, object_storage_manager
-from cosmo_suite.config import (
+from cosmo_ecosystem import logger, object_storage_manager
+from cosmo_ecosystem.config import (
     OBJECT_STORAGE_ACCESS_KEY,
     OBJECT_STORAGE_BUCKET,
     OBJECT_STORAGE_HOST,

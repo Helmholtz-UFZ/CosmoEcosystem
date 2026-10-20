@@ -5,15 +5,15 @@ See docs/plan/slice2b-framework-batch4.md and docs/conventions/database_schema.m
 
 import pytest
 
-from cosmo_suite.db_manager import Base, DbManager, JobColumns
-from cosmo_suite.error_handling import JobTableNotConfigured
+from cosmo_ecosystem.db_manager import Base, DbManager, JobColumns
+from cosmo_ecosystem.error_handling import JobTableNotConfigured
 
 
 def test_framework_registers_no_jobs_table():
     """Sonst kann keine App ihre eigene jobs-Tabelle deklarieren."""
-    import cosmo_suite.db_manager  # noqa: F401
-    import cosmo_suite.files_route  # noqa: F401
-    import cosmo_suite.job  # noqa: F401
+    import cosmo_ecosystem.db_manager  # noqa: F401
+    import cosmo_ecosystem.files_route  # noqa: F401
+    import cosmo_ecosystem.job  # noqa: F401
 
     assert "jobs" not in Base.metadata.tables
     assert "logs" in Base.metadata.tables

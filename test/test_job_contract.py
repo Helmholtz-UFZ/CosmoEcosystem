@@ -9,9 +9,9 @@ from datetime import date, timedelta
 
 import pytest
 
-from cosmo_suite.base_job import BaseJob
-from cosmo_suite.constants import DAYS_DELETE_NOT_SUBMITTED, DAYS_DELETE_SUBMITTED
-from cosmo_suite.job import Job
+from cosmo_ecosystem.base_job import BaseJob
+from cosmo_ecosystem.constants import DAYS_DELETE_NOT_SUBMITTED, DAYS_DELETE_SUBMITTED
+from cosmo_ecosystem.job import Job
 
 CONTRACT_MEMBERS = ("job_id", "save", "delete", "submit", "time_to_live")
 

@@ -2,7 +2,7 @@
 
 import datetime
 
-from cosmo_suite.db_manager import DbManager
+from cosmo_ecosystem.db_manager import DbManager
 
 
 def test_add_and_check_existence():

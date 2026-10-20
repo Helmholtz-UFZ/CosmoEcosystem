@@ -18,14 +18,14 @@ from sqlalchemy import (
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
-from cosmo_suite.config import (
+from cosmo_ecosystem.config import (
     POSTGRES_DB,
     POSTGRES_HOST_NAME,
     POSTGRES_PASSWORD,
     POSTGRES_PORT,
     POSTGRES_USER,
 )
-from cosmo_suite.error_handling import JobNotFound, JobTableNotConfigured
+from cosmo_ecosystem.error_handling import JobNotFound, JobTableNotConfigured
 
 log = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ class Base(DeclarativeBase):
     This is a documented export point, not an internal detail. An app declares
     its own tables on this ``Base``::
 
-        from cosmo_suite.db_manager import Base
+        from cosmo_ecosystem.db_manager import Base
 
         class RouteTable(Base):
             __tablename__ = "routes"
