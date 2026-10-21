@@ -16,8 +16,8 @@ device-specific.
 - **Point an app at a local framework checkout through the environment.** Set
   `COSMO_ECOSYSTEM_PATH` to the checkout and `run_pytest.sh` overlays it:
   1. it runs `uv sync --frozen`, which installs the pinned tag;
-  2. it runs `uv pip install --editable "$COSMO_ECOSYSTEM_PATH"`;
-  3. it runs the suite with `uv run --no-sync pytest`.
+  2. it runs `uv pip install --python .venv --editable "$COSMO_ECOSYSTEM_PATH"`;
+  3. it exports `UV_NO_SYNC=1` and runs the suite with `uv run --no-sync pytest`.
 
   The variable lives only in your shell. Nothing in the repo knows where your checkout is.
 - **Use `--no-sync` for every command against the overlay.** A plain `uv run` re-syncs to
@@ -50,6 +50,17 @@ cosmo-ecosystem = { path = "/home/<user>/git/cosmo-ecosystem", editable = true }
 ```
 
 ## Notes
+
+- **Always pass `--python .venv` to `uv pip install`.** `uv pip` installs into the
+  *active* environment, and a shell with `VIRTUAL_ENV` exported (a global venv, an
+  activated sibling project) wins over the project's `.venv`. `uv run` and `uv sync`
+  ignore a mismatching `VIRTUAL_ENV` with a warning; `uv pip install` does not. On
+  2026-10-21 an overlay without the flag installed the framework and its
+  dependencies into the user's global venv.
+- **`UV_NO_SYNC=1` reaches subprocesses, `--no-sync` does not.** A conftest that
+  starts the Celery worker with a plain `uv run celery …` re-syncs to the lock file
+  and runs the worker against the pinned tag while the tests run against the
+  overlay. The environment variable covers every `uv run` the suite spawns.
 
 - **The overlay is for tests and the dev server only. Images never see it.** The worker
   and prod Dockerfiles install from the lock file, so they always build against the pinned
