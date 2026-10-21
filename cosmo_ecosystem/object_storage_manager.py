@@ -482,6 +482,10 @@ def delete_directory_from_storage(
 ) -> None:
     """Delete a directory from the object storage using rclone.
 
+    A directory that does not exist is not an error: the call returns as if it
+    had deleted it. A missing bucket still raises. See "Gotchas" in
+    docs/conventions/object_storage.md for the measured rclone behaviour.
+
     Args:
         dirpath: Path of the directory to delete from object storage
         timeout: Seconds before a single purge attempt is killed. The transfer

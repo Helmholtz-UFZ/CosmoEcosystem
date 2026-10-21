@@ -134,3 +134,12 @@ image differ.
   code cannot reach them. That is expected.
 - **The include `ref` and the pyproject pin can drift apart.** The only effect is a
   different server version in CI, so no test guards it.
+- **Deleting a prefix that does not exist succeeds.** Job deletion relies on this to
+  treat a job that never uploaded anything as already deleted. Measured 2026-10-21
+  against RustFS with rclone 1.75.2 (the `rclone-current` download in the
+  COSMOPOLITAN and csv_profiler images) and 1.60.1 (Debian's apt package, used by
+  COSMONAUT and CI): `rclone purge` on a missing prefix in an existing bucket exits 0
+  with empty stderr. A missing *bucket* exits 3 (`directory not found`) and raises
+  `ObjectStorageError` after the retries, because that is a configuration error,
+  not an absent job. The example suite pins the first half; re-measure if an image
+  moves to a different rclone major version.
