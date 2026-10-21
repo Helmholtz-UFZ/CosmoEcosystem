@@ -24,7 +24,7 @@ no failing test, and a symptom that surfaces somewhere else entirely.**
 | Importing … | also imports | which registers |
 | --- | --- | --- |
 | any framework page | `cosmo_ecosystem.layouts` | nothing since v0.7.0 — the navbar-collapse callback used to be here, see [silent failure 4](#4-an-import-registers-a-callback-and-a-consumer-never-asked) |
-| `pages.job_management` | `cosmo_ecosystem.job`, `cosmo_ecosystem.db_manager`, `cosmo_ecosystem.tasks.maintenance_tasks` | its own page + three callbacks |
+| `pages.job_management` | `cosmo_ecosystem.job_retention`, `cosmo_ecosystem.db_manager`, `cosmo_ecosystem.tasks.maintenance_tasks` (not `cosmo_ecosystem.job` since it deletes through `job_retention`) | its own page + three callbacks |
 | `pages.worker_management` | `cosmo_ecosystem.background_job_manager` | its own page + eleven callbacks, one of them clientside |
 | `layouts.app_layout()` | — | the navbar-collapse callback on `NAVBAR_TOGGLER_BUTTON_SHARED_ID` / `NAVBAR_COLLAPSE_DIV_SHARED_ID` — it mounts that navbar |
 | `layouts.app_layout(with_reset=True)` | — | the above **plus** the two job-reset callbacks |

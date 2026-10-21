@@ -31,6 +31,7 @@ from cosmo_ecosystem.error_handling import (
     JobExists,
     JobNotFound,
 )
+from cosmo_ecosystem.job_retention import delete_job
 from cosmo_ecosystem.object_storage_manager import (
     delete_directory_from_storage,
     delete_file_from_storage,
@@ -324,14 +325,9 @@ class Job(BaseJob):
         save_files(self.job_id)
         self.save_to_db()
 
-    def delete(self, delete_work_dir=True, delete_db=True):
-        """Delete the job from the database and storage."""
-        log.debug(f"Delete job {self.job_id}")
-        if delete_work_dir:
-            shutil.rmtree(self.working_dir)
-        if delete_db:
-            DbManager.delete_job(self.job_id)
-            delete_directory_from_storage(self.job_id)
+    def delete(self):
+        """Delete the job from the database, the local disk and storage."""
+        delete_job(self.job_id)
 
     def submit(self):
         """Submit job to Celery queue for background processing."""

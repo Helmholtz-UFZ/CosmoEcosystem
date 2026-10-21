@@ -25,7 +25,7 @@ from cosmo_ecosystem.constants import (
     LOADING_OVERLAY_MODAL_SHARED_ID,
     REFRESH_BUTTON_JOB_MANAGEMENT_ID,
 )
-from cosmo_ecosystem.job import Job
+from cosmo_ecosystem.job_retention import delete_job
 from cosmo_ecosystem.layouts import create_header, page_container_column_layout
 from cosmo_ecosystem.db_manager import DbManager
 from cosmo_ecosystem.tasks.maintenance_tasks import clean_up_jobs
@@ -166,8 +166,7 @@ def job_management_dashboard(
         for row in selected_rows:
             job_id = re.findall(r"\[(.*?)\]", row["job_id"])[0]
             log.debug(f"Deleting job with ID: {job_id}")
-            job = Job(job_id)
-            job.delete()
+            delete_job(job_id)
     elif button_id == CLEAN_BUTTON_JOB_MANAGEMENT_ID:
         log.info("Cleaning unsubmitted jobs")
         clean_up_jobs(days_delete_not_submitted=0)

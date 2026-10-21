@@ -146,6 +146,7 @@ Service requirements vary by test:
 |-----------|----------------|
 | `test_computation_module.py` | None (unit test, pandas only) |
 | `test_db_manager.py` | Postgres |
+| `test_job_retention.py` | Postgres, object storage |
 | `test_env.py` | None (reads env files only) |
 | `test_html_id_enforcement.py` | None (checks source code only) |
 
