@@ -120,6 +120,7 @@ For specific implementation details, see:
 - [Object Storage](docs/conventions/object_storage.md) - The S3 server for dev/CI, the shared CI template, wiring up an app, swapping the server
 - [Celery Beat](docs/conventions/celery_beat.md) - Beat runs in the worker (`--beat`), never as a thread in `app.py` — fork deadlock / duplicate schedules
 - [Worker Image](docs/conventions/worker_image.md) - The Dockerfile `CMD` seam, why `&&` not `;`, and the smoke test that belongs in the apps
+- [Cross-Repo Development](docs/conventions/cross_repo_development.md) - Framework and both apps move together; `COSMO_ECOSYSTEM_PATH` overlay, never a committed local path
 
 **Important** read the convention before you make any codebase exploration or answering.
 Never sacrfice speed for accuracy.
