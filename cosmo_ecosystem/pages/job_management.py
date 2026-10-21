@@ -25,10 +25,9 @@ from cosmo_ecosystem.constants import (
     LOADING_OVERLAY_MODAL_SHARED_ID,
     REFRESH_BUTTON_JOB_MANAGEMENT_ID,
 )
-from cosmo_ecosystem.job_retention import delete_job
+from cosmo_ecosystem.job_retention import clean_up_jobs, delete_job
 from cosmo_ecosystem.layouts import create_header, page_container_column_layout
 from cosmo_ecosystem.db_manager import DbManager
-from cosmo_ecosystem.tasks.maintenance_tasks import clean_up_jobs
 
 log = logging.getLogger(__name__)
 
