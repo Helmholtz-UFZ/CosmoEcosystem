@@ -107,7 +107,7 @@ uv run python -m cosmo_ecosystem.job_retention <module setting DbManager.job_tab
 # e.g. csv_profiler.celery_app, cosmonaut_app.db_manager
 ```
 
-Run from anywhere else, it fails at import with `Enviroment variable … not set`.
+Run from anywhere else, it fails at import with `Environment variable … not set`.
 On a freshly started local stack the bucket does not exist until the app has run
 once; the report says so and exits instead of creating it.
 
