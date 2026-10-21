@@ -183,8 +183,30 @@ Playwright artifacts are stored in `test/artifacts/` and include:
 
 ## CI Pipeline
 
-Not yet configured for this template. Add CI configuration as needed for your
-project.
+`.gitlab-ci.yml` runs five jobs. Run all of them locally before pushing — the two
+suites alone are not enough: on 2026-10-21 a branch with both suites green still
+failed CI twice, once on `domain-free` and once on root (below).
+
+| Job | Locally |
+|---|---|
+| `framework-lint` | `uv run ruff format --check cosmo_ecosystem test`, `uv run ruff check cosmo_ecosystem test`, `uv lock --check` |
+| `domain-free` | `! grep -rnE --include='*.py' 'csv_profiler\|ProfileConfig\|computation_module\|validate_csv\|profile_csv\|CSV_UPLOAD' cosmo_ecosystem/` |
+| `framework-test` | `uv run pytest test/` |
+| `example-lint` | in `examples/csv_profiler/`: `uv run ruff format --check .`, `uv run ruff check .`, `uv lock --check` |
+| `example-test` | in `examples/csv_profiler/`: `./run_pytest.sh` |
+
+`domain-free` is the one that surprises: the framework package must not *mention*
+the example domain anywhere in Python, docstrings and comments included. Write
+`<app>.celery_app`, not `csv_profiler.celery_app`.
+
+### CI runs the tests as root
+
+The CI image runs as root, and root ignores file permissions. A test that provokes
+a failure with `chmod` (a read-only directory `rmtree` cannot empty) passes locally
+and fails in CI, because the deletion simply succeeds there. To make removal fail for
+every user, replace the directory with a symlink: `shutil.rmtree` refuses a symlink
+with `OSError`, as root too, and `os.path.isdir` still reports it as a directory. See
+`_make_undeletable` in `examples/csv_profiler/test/test_job_retention.py`.
 
 ## Examples
 
