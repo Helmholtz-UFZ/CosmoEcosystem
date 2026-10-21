@@ -1,21 +1,30 @@
 """Job retention: when a job expires, and what deleting a job means."""
 
+import importlib
 import logging
 import os
 import shutil
+import sys
 import time
 from dataclasses import dataclass, field
 from datetime import date
 
 from sqlalchemy.exc import SQLAlchemyError
 
-from cosmo_ecosystem.config import JOB_WORK_DIR_TEMPLATE, WEB_WORK_DIR
+from cosmo_ecosystem.config import (
+    JOB_WORK_DIR_TEMPLATE,
+    OBJECT_STORAGE_BUCKET,
+    WEB_WORK_DIR,
+)
 from cosmo_ecosystem.constants import DAYS_DELETE_NOT_SUBMITTED, DAYS_DELETE_SUBMITTED
 from cosmo_ecosystem.db_manager import DbManager
 from cosmo_ecosystem.error_handling import JobCleanupFailed, JobNotFound
 from cosmo_ecosystem.object_storage_manager import (
     ObjectStorageError,
+    bucket_exists,
     delete_directory_from_storage,
+    list_top_level_prefixes,
+    setup_remote,
 )
 
 log = logging.getLogger(__name__)
@@ -157,3 +166,63 @@ def _remove_orphaned_local_dirs() -> list[str]:
             continue
         removed.append(dir_name)
     return removed
+
+
+def find_orphaned_prefixes() -> list[str]:
+    """Return the remote prefixes that have no row in this database, sorted.
+
+    Read-only. An orphan here is only a candidate: a bucket shared with
+    another environment holds that environment's jobs too.
+    """
+    return sorted(list_top_level_prefixes() - DbManager.list_job_ids())
+
+
+USAGE = "Usage: python -m cosmo_ecosystem.job_retention <module setting DbManager.job_table>"  # noqa: E501
+
+
+def main(argv: list[str] | None = None):
+    """Print the orphaned remote prefixes for manual review; delete nothing.
+
+    Args:
+        argv: One module of the app that assigns ``DbManager.job_table`` on
+            import (e.g. ``<app>.celery_app``). Defaults to the command
+            line arguments.
+    """
+    if argv is None:
+        argv = sys.argv[1:]
+    if len(argv) != 1:
+        print(USAGE)
+        sys.exit(1)
+    (job_table_module,) = argv
+    # A dynamic import, against the top-level-only rule on purpose: only the
+    # operator knows which app module configures the job table.
+    importlib.import_module(job_table_module)
+    # A shell, unlike a pod, has no rclone remote until something writes it.
+    setup_remote()
+    # Not created here: the report is read-only, and a missing bucket may just
+    # as well be a mistyped OBJECT_STORAGE_BUCKET.
+    if not bucket_exists():
+        print(
+            f"Bucket {OBJECT_STORAGE_BUCKET} does not exist on this object "
+            "storage, so there is nothing to report. On a fresh local stack the "
+            "app creates it at startup; otherwise check OBJECT_STORAGE_BUCKET."
+        )
+        sys.exit(1)
+
+    orphans = find_orphaned_prefixes()
+    print(
+        f"Remote prefixes in bucket {OBJECT_STORAGE_BUCKET} with no row in this "
+        f"database: {len(orphans)}"
+    )
+    for prefix in orphans:
+        print(prefix)
+    print(
+        "Nothing was deleted. If this bucket is shared with another "
+        "environment's database, a listed prefix may belong to that database: "
+        "run the report against each one and only treat prefixes listed by "
+        "every one as orphaned."
+    )
+
+
+if __name__ == "__main__":
+    main()

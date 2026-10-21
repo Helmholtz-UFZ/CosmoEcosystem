@@ -36,7 +36,8 @@ URLs. Nothing in `cosmo_ecosystem/` knows which server sits behind
   `cosmo_ecosystem.job_retention.delete_job`, for a job whose row is being
   deleted. A rowless prefix or local dir proves nothing: COSMOPOLITAN's stage and
   prod databases share the bucket `cosmopolitan-prod`, so a sweep run from stage
-  would delete every prod job. Leftovers are reviewed by hand, never swept.
+  would delete every prod job. Leftovers are reviewed by hand with the orphan
+  report (below), never swept.
 - **The server takes its keys from `OBJECT_STORAGE_ACCESS_KEY` /
   `OBJECT_STORAGE_SECRET_KEY`.** Compose interpolates them from `.env`, and CI takes
   them from the job variables. RustFS refuses to start with an empty key.
@@ -93,6 +94,28 @@ image differ.
 2. Release the framework.
 3. In each app, re-pin (which also moves the include `ref`) and replace the image,
    `environment` and healthcheck lines of its compose block.
+
+## Reviewing orphaned prefixes
+
+A remote prefix with no job row is a leftover, for example from the pre-v0.10
+cleanup that only purged jobs present on the cleaning pod's disk. List them,
+read-only, from the app's directory with its `.env` in place:
+
+```bash
+cd <app directory>          # where the app's .env lives; config reads it from the CWD
+uv run python -m cosmo_ecosystem.job_retention <module setting DbManager.job_table>
+# e.g. csv_profiler.celery_app, cosmonaut_app.db_manager
+```
+
+Run from anywhere else, it fails at import with `Enviroment variable … not set`.
+On a freshly started local stack the bucket does not exist until the app has run
+once; the report says so and exits instead of creating it.
+
+The module argument is how the framework learns the app's job table. The report
+writes the rclone remote into your rclone config, like the app does at startup,
+prints the candidates and deletes nothing. On a shared bucket, run it against each
+database that uses the bucket and treat only the prefixes every run lists as
+orphaned. Delete them by hand after review.
 
 ## Why RustFS and boto3 (decided 2026-09-16, issue #1)
 

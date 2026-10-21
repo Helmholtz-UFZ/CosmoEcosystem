@@ -511,24 +511,36 @@ def delete_directory_from_storage(
     )
 
 
+def list_top_level_prefixes() -> set[str]:
+    """Return the names of the top-level directories in the bucket.
+
+    One per job id, since every job stores its files below its own id.
+    """
+    return _list_dirs(f"{OBJECT_STORAGE_REMOTE_NAME}:{OBJECT_STORAGE_BUCKET}")
+
+
+def _list_dirs(remote_path: str) -> set[str]:
+    """Return the names of the directories directly below remote_path."""
+    lsf_params = ["rclone", "lsf", "--dirs-only", remote_path]
+
+    result = run_rclone_with_retry(lsf_params, timeout=CONTROL_TIMEOUT)
+
+    # One name per line with a trailing slash ("cosmo-jobs/"), compared whole by
+    # callers: a substring test took "cosmo-jobs" for present whenever
+    # "cosmo-jobs-old" was.
+    return {line.rstrip("/") for line in result.stdout.splitlines()}
+
+
+def bucket_exists() -> bool:
+    """Return whether the configured bucket exists on the object storage."""
+    return OBJECT_STORAGE_BUCKET in _list_dirs(f"{OBJECT_STORAGE_REMOTE_NAME}:")
+
+
 def create_bucket() -> None:
     """Create the object storage bucket if it doesn't already exist."""
     log.debug(f"Creating bucket {OBJECT_STORAGE_BUCKET}")
 
-    # Check if bucket already exists
-    lsf_params = [
-        "rclone",
-        "lsf",
-        "--dirs-only",
-        f"{OBJECT_STORAGE_REMOTE_NAME}:",
-    ]
-
-    result = run_rclone_with_retry(lsf_params, timeout=CONTROL_TIMEOUT)
-
-    # One bucket per line with a trailing slash ("cosmo-jobs/"), compared whole:
-    # a substring test took "cosmo-jobs" for present whenever "cosmo-jobs-old" was.
-    buckets = {line.rstrip("/") for line in result.stdout.splitlines()}
-    if OBJECT_STORAGE_BUCKET in buckets:
+    if bucket_exists():
         return
 
     # Create bucket if it doesn't exist

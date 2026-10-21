@@ -347,6 +347,13 @@ class DbManager:
             session.delete(job)
 
     @classmethod
+    def list_job_ids(cls):
+        """Return the ids of all jobs in the database."""
+        job_table = cls._job_table()
+        with cls.session_scope() as session:
+            return {row.job_id for row in session.query(job_table.job_id)}
+
+    @classmethod
     def list_jobs(cls):
         """List all jobs in the database with their submission date and status."""
         log.debug("List all jobs.")

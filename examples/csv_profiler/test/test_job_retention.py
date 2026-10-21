@@ -16,7 +16,7 @@ from cosmo_ecosystem.constants import DAYS_DELETE_NOT_SUBMITTED, DAYS_DELETE_SUB
 from cosmo_ecosystem.db_manager import DbManager
 from cosmo_ecosystem.error_handling import JobCleanupFailed
 from cosmo_ecosystem.job_retention import clean_up_jobs, delete_job
-from cosmo_ecosystem import object_storage_manager
+from cosmo_ecosystem import job_retention, object_storage_manager
 from cosmo_ecosystem.object_storage_manager import (
     ObjectStorageError,
     delete_directory_from_storage,
@@ -25,6 +25,8 @@ from cosmo_ecosystem.object_storage_manager import (
 )
 
 FILE_NAME = "result.csv"
+# The csv_profiler module that assigns DbManager.job_table on import.
+APP_JOB_TABLE_MODULE = "csv_profiler.celery_app"
 CONTENT = "col_a,col_b\n1,2\n"
 
 
@@ -386,3 +388,60 @@ def test_an_undeletable_orphaned_local_dir_does_not_hide_job_failures(tmp_path):
     finally:
         for job_id in (failing_id, orphan_id):
             _cleanup(job_id)
+
+
+def _bucket_contents():
+    """List every object in the bucket."""
+    return get_remote_files(f"{OBJECT_STORAGE_REMOTE_NAME}:{OBJECT_STORAGE_BUCKET}")
+
+
+def test_orphan_report_lists_rowless_prefixes_and_changes_nothing(capsys):
+    """Operators review leftovers by hand; the report itself never deletes."""
+    orphan_id = "test_report_orphan"
+    owned_id = "test_report_owned"
+    _seed_remote(orphan_id)
+    _seed_row(owned_id)
+    _seed_remote(owned_id)
+    before = _bucket_contents()
+
+    try:
+        job_retention.main([APP_JOB_TABLE_MODULE])
+
+        # Whole lines, so a word of the banner can never pass for a prefix.
+        listed = capsys.readouterr().out.splitlines()
+        assert orphan_id in listed
+        assert owned_id not in listed
+        assert _bucket_contents() == before
+    finally:
+        for job_id in (orphan_id, owned_id):
+            _cleanup(job_id)
+
+
+def test_orphan_report_warns_that_a_shared_bucket_has_other_owners(capsys):
+    """On a shared bucket a listed prefix may be the other database's job."""
+    job_retention.main([APP_JOB_TABLE_MODULE])
+
+    out = capsys.readouterr().out
+    assert "Nothing was deleted" in out
+    assert "may belong to that database" in out
+
+
+def test_orphan_report_without_the_app_module_prints_usage(capsys):
+    """Without the module the report cannot know the job table, so it stops."""
+    with pytest.raises(SystemExit):
+        job_retention.main([])
+
+    assert "Usage" in capsys.readouterr().out
+
+
+def test_orphan_report_names_a_missing_bucket_instead_of_crashing(monkeypatch, capsys):
+    """A fresh stack or a mistyped bucket name: say so, and create nothing."""
+    # Both modules read the bucket name from config at import time.
+    for module in (object_storage_manager, job_retention):
+        monkeypatch.setattr(module, "OBJECT_STORAGE_BUCKET", "no-such-bucket")
+
+    with pytest.raises(SystemExit):
+        job_retention.main([APP_JOB_TABLE_MODULE])
+
+    assert "no-such-bucket" in capsys.readouterr().out
+    assert not object_storage_manager.bucket_exists()
