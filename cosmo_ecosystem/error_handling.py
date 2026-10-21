@@ -66,6 +66,22 @@ class JobCleanupFailed(Exception):
         )
 
 
+class JobDeletionFailed(Exception):
+    """Raised after deleting several jobs, when some of them could not be deleted.
+
+    Every other job was deleted; the failed ones keep their row and can be
+    deleted again.
+    """
+
+    def __init__(self, job_ids):
+        """Add the failed job ids as attribute and format error message."""
+        self.job_ids = job_ids
+        super().__init__(
+            f"Could not delete the jobs {', '.join(job_ids)}. They are kept; "
+            "try deleting them again."
+        )
+
+
 class WorkerManagementError(Exception):
     """Base exception for worker management operations."""
 
@@ -166,6 +182,7 @@ error_responds_dict = {
         "Could not find the job '{job_id}'. Visit job submission to make a new submission.",
     ),
     JobCleanupFailed: ("Cleanup Incomplete", USE_ERROR_MESSAGE),
+    JobDeletionFailed: ("Deletion Incomplete", USE_ERROR_MESSAGE),
     WorkerNotAvailableError: (
         "No Workers Available",
         "No Celery workers are currently running. Please check the worker service status.",  # noqa

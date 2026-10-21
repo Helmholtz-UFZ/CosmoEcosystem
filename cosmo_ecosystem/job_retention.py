@@ -18,7 +18,11 @@ from cosmo_ecosystem.config import (
 )
 from cosmo_ecosystem.constants import DAYS_DELETE_NOT_SUBMITTED, DAYS_DELETE_SUBMITTED
 from cosmo_ecosystem.db_manager import DbManager
-from cosmo_ecosystem.error_handling import JobCleanupFailed, JobNotFound
+from cosmo_ecosystem.error_handling import (
+    JobCleanupFailed,
+    JobDeletionFailed,
+    JobNotFound,
+)
 from cosmo_ecosystem.object_storage_manager import (
     ObjectStorageError,
     bucket_exists,
@@ -69,6 +73,32 @@ def delete_job(job_id: str) -> None:
         log.debug(f"Job {job_id} has no database row any more.")
 
 
+def delete_jobs(job_ids: list[str]) -> None:
+    """Delete every job in job_ids everywhere; one failure does not stop the rest.
+
+    The dashboard "Delete" on a multi-row selection.
+
+    Raises:
+        JobDeletionFailed: After all jobs were tried, naming those that could
+            not be deleted. They keep their row and can be deleted again.
+    """
+    failed_ids = _delete_each(job_ids)
+    if failed_ids:
+        raise JobDeletionFailed(failed_ids)
+
+
+def _delete_each(job_ids: list[str]) -> list[str]:
+    """Delete each job, logging and skipping failures; return the failed ids."""
+    failed_ids = []
+    for job_id in job_ids:
+        try:
+            delete_job(job_id)
+        except (ObjectStorageError, OSError, SQLAlchemyError) as error:
+            log.error(f"Could not delete job {job_id}: {error}", exc_info=True)
+            failed_ids.append(job_id)
+    return failed_ids
+
+
 def days_to_live(
     start_date: date,
     submitted: bool,
@@ -95,6 +125,7 @@ def clean_up_jobs(
     """
     log.info("Start cleaning up jobs.")
     summary = CleanupSummary()
+    expired_ids = []
     for job_id, job_info in DbManager.list_jobs().items():
         remaining = days_to_live(
             job_info["start_date"],
@@ -104,14 +135,13 @@ def clean_up_jobs(
         )
         if remaining > 0:
             summary.kept_ids.append(job_id)
-            continue
-        try:
-            delete_job(job_id)
-        except (ObjectStorageError, OSError, SQLAlchemyError) as error:
-            log.error(f"Could not delete expired job {job_id}: {error}", exc_info=True)
-            summary.failed_ids.append(job_id)
         else:
-            summary.deleted_ids.append(job_id)
+            expired_ids.append(job_id)
+
+    summary.failed_ids = _delete_each(expired_ids)
+    summary.deleted_ids = [
+        job_id for job_id in expired_ids if job_id not in summary.failed_ids
+    ]
 
     summary.removed_local_dirs = _remove_orphaned_local_dirs()
 

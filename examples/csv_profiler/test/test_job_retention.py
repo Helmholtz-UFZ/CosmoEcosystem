@@ -14,8 +14,8 @@ from cosmo_ecosystem.config import (
 )
 from cosmo_ecosystem.constants import DAYS_DELETE_NOT_SUBMITTED, DAYS_DELETE_SUBMITTED
 from cosmo_ecosystem.db_manager import DbManager
-from cosmo_ecosystem.error_handling import JobCleanupFailed
-from cosmo_ecosystem.job_retention import clean_up_jobs, delete_job
+from cosmo_ecosystem.error_handling import JobCleanupFailed, JobDeletionFailed
+from cosmo_ecosystem.job_retention import clean_up_jobs, delete_job, delete_jobs
 from cosmo_ecosystem import job_retention, object_storage_manager
 from cosmo_ecosystem.object_storage_manager import (
     ObjectStorageError,
@@ -445,3 +445,29 @@ def test_orphan_report_names_a_missing_bucket_instead_of_crashing(monkeypatch, c
 
     assert "no-such-bucket" in capsys.readouterr().out
     assert not object_storage_manager.bucket_exists()
+
+
+def test_deleting_several_jobs_tries_every_one_and_names_the_failures(tmp_path):
+    """The dashboard Delete on a multi-row selection: one failure stops nothing."""
+    first_id = "test_delete_several_first"
+    failing_id = "test_delete_several_failing"
+    last_id = "test_delete_several_last"
+    job_ids = [first_id, failing_id, last_id]
+
+    try:
+        for job_id in job_ids:
+            _seed_row(job_id)
+            _seed_remote(job_id)
+        _make_undeletable(failing_id, tmp_path)
+
+        with pytest.raises(JobDeletionFailed) as raised:
+            delete_jobs(job_ids)
+
+        assert raised.value.job_ids == [failing_id]
+        assert DbManager.check_existence(failing_id)
+        for job_id in (first_id, last_id):
+            assert not DbManager.check_existence(job_id)
+            assert _remote_files(job_id) == set()
+    finally:
+        for job_id in job_ids:
+            _cleanup(job_id)
