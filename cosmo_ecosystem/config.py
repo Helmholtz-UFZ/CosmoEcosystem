@@ -16,7 +16,7 @@ def getenv(name):
     value = os.getenv(name)
 
     if value is None:
-        raise ValueError(f"Enviroment variable {name} not set.")
+        raise ValueError(f"Environment variable {name} not set.")
     return value
 
 

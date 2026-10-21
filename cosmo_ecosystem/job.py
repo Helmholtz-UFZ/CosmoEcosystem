@@ -20,17 +20,14 @@ from werkzeug.utils import secure_filename
 
 from cosmo_ecosystem.base_job import BaseJob
 from cosmo_ecosystem.config import JOB_WORK_DIR_TEMPLATE
-from cosmo_ecosystem.constants import (
-    DAYS_DELETE_NOT_SUBMITTED,
-    DAYS_DELETE_SUBMITTED,
-    LOG_FILE_NAME,
-)
+from cosmo_ecosystem.constants import LOG_FILE_NAME
 from cosmo_ecosystem.db_manager import DbManager
 from cosmo_ecosystem.error_handling import (
     InvalidJobID,
     JobExists,
     JobNotFound,
 )
+from cosmo_ecosystem.job_retention import days_to_live, delete_job
 from cosmo_ecosystem.object_storage_manager import (
     delete_directory_from_storage,
     delete_file_from_storage,
@@ -324,14 +321,9 @@ class Job(BaseJob):
         save_files(self.job_id)
         self.save_to_db()
 
-    def delete(self, delete_work_dir=True, delete_db=True):
-        """Delete the job from the database and storage."""
-        log.debug(f"Delete job {self.job_id}")
-        if delete_work_dir:
-            shutil.rmtree(self.working_dir)
-        if delete_db:
-            DbManager.delete_job(self.job_id)
-            delete_directory_from_storage(self.job_id)
+    def delete(self):
+        """Delete the job from the database, the local disk and storage."""
+        delete_job(self.job_id)
 
     def submit(self):
         """Submit job to Celery queue for background processing."""
@@ -365,11 +357,7 @@ class Job(BaseJob):
 
     def time_to_live(self):
         """Return the number of days after which this job will be deleted."""
-        days_passed = (date.today() - self.start_date).days
-        if self.submitted:
-            return DAYS_DELETE_SUBMITTED - days_passed
-        else:
-            return DAYS_DELETE_NOT_SUBMITTED - days_passed
+        return days_to_live(self.start_date, self.submitted)
 
     def time_to_life(self):
         """Return the number of days after which this job will be deleted.

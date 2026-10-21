@@ -32,6 +32,12 @@ URLs. Nothing in `cosmo_ecosystem/` knows which server sits behind
 - **No rclone setup in CI scripts.** The conftest (and `app.py`) already call
   `setup_remote()` and `create_bucket()`, which do it for every server.
 - **Pin exact image tags.** Never `latest`.
+- **Never sweep the bucket.** Delete a job's remote prefix only through
+  `cosmo_ecosystem.job_retention.delete_job`, for a job whose row is being
+  deleted. A rowless prefix or local dir proves nothing: COSMOPOLITAN's stage and
+  prod databases share the bucket `cosmopolitan-prod`, so a sweep run from stage
+  would delete every prod job. Leftovers are reviewed by hand with the orphan
+  report (below), never swept.
 - **The server takes its keys from `OBJECT_STORAGE_ACCESS_KEY` /
   `OBJECT_STORAGE_SECRET_KEY`.** Compose interpolates them from `.env`, and CI takes
   them from the job variables. RustFS refuses to start with an empty key.
@@ -89,6 +95,28 @@ image differ.
 3. In each app, re-pin (which also moves the include `ref`) and replace the image,
    `environment` and healthcheck lines of its compose block.
 
+## Reviewing orphaned prefixes
+
+A remote prefix with no job row is a leftover, for example from the pre-v0.10
+cleanup that only purged jobs present on the cleaning pod's disk. List them,
+read-only, from the app's directory with its `.env` in place:
+
+```bash
+cd <app directory>          # where the app's .env lives; config reads it from the CWD
+uv run python -m cosmo_ecosystem.job_retention <module setting DbManager.job_table>
+# e.g. csv_profiler.celery_app, cosmonaut_app.db_manager
+```
+
+Run from anywhere else, it fails at import with `Environment variable … not set`.
+On a freshly started local stack the bucket does not exist until the app has run
+once; the report says so and exits instead of creating it.
+
+The module argument is how the framework learns the app's job table. The report
+writes the rclone remote into your rclone config, like the app does at startup,
+prints the candidates and deletes nothing. On a shared bucket, run it against each
+database that uses the bucket and treat only the prefixes every run lists as
+orphaned. Delete them by hand after review.
+
 ## Why RustFS and boto3 (decided 2026-09-16, issue #1)
 
 - **MinIO Community Edition is gone.** It has had no images since October 2025, the
@@ -134,3 +162,12 @@ image differ.
   code cannot reach them. That is expected.
 - **The include `ref` and the pyproject pin can drift apart.** The only effect is a
   different server version in CI, so no test guards it.
+- **Deleting a prefix that does not exist succeeds.** Job deletion relies on this to
+  treat a job that never uploaded anything as already deleted. Measured 2026-10-21
+  against RustFS with rclone 1.75.2 (the `rclone-current` download in the
+  COSMOPOLITAN and csv_profiler images) and 1.60.1 (Debian's apt package, used by
+  COSMONAUT and CI): `rclone purge` on a missing prefix in an existing bucket exits 0
+  with empty stderr. A missing *bucket* exits 3 (`directory not found`) and raises
+  `ObjectStorageError` after the retries, because that is a configuration error,
+  not an absent job. The example suite pins the first half; re-measure if an image
+  moves to a different rclone major version.
