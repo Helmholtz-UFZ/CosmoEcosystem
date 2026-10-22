@@ -58,6 +58,16 @@ these first — they usually explain the failure without needing another run. No
 that `run_pytest.sh` clears previous artifacts by default (use `--keep-artifacts`
 to preserve them across runs).
 
+## Test containers have their own names
+
+`run_pytest.sh` starts its services as compose project `cosmo_ecosystem_test` with
+containers `postgres_cosmo_ecosystem_test`, `object_storage_cosmo_ecosystem_test` and
+`redis_cosmo_ecosystem_test` (names injected by a temporary override file), and its
+cleanup runs `docker compose down -v` on that project only. The dev stack's
+`*_cosmo_ecosystem` containers are never stopped or removed by a test run; before this
+a suite started while `dev_up.sh` was running deleted the dev containers. The host
+ports below still collide with a running dev stack, so stop it first.
+
 ## Local port allocation across the three repos
 
 All three stacks used to publish the same host ports, so **no two suites could run at
@@ -194,6 +204,8 @@ failed CI twice, once on `domain-free` and once on root (below).
 | `framework-test` | `uv run pytest test/` |
 | `example-lint` | in `examples/csv_profiler/`: `uv run ruff format --check .`, `uv run ruff check .`, `uv lock --check` |
 | `example-test` | in `examples/csv_profiler/`: `./run_pytest.sh` |
+
+`.pre-commit-config.yaml` runs the lint commands of `framework-lint` and `example-lint` (ruff format, ruff check, `uv lock --check`) on commit; install once with `uvx pre-commit install`, check everything with `uvx pre-commit run --all-files`.
 
 `domain-free` is the one that surprises: the framework package must not *mention*
 the example domain anywhere in Python, docstrings and comments included. Write

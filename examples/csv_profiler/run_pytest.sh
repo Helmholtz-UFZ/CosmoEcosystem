@@ -2,7 +2,18 @@
 
 set -e
 
-trap cleaning_up EXIT
+START_SERVICES=1
+
+# The test stack is its own compose project with its own container names, so it can
+# never collide with (or tear down) the dev stack from docker-compose.yml, which
+# uses the plain names postgres_cosmo_ecosystem etc.
+TEST_PROJECT="cosmo_ecosystem_test"
+TEST_POSTGRES="postgres_cosmo_ecosystem_test"
+TEST_OBJECT_STORAGE="object_storage_cosmo_ecosystem_test"
+TEST_REDIS="redis_cosmo_ecosystem_test"
+test_compose() {
+    docker compose --project-directory . -p "$TEST_PROJECT" -f docker-compose.yml -f "$OVERRIDE_FILE" "$@"
+}
 
 # Cleanup function - restores environment and stops services
 cleaning_up() {
@@ -11,10 +22,12 @@ cleaning_up() {
         mv .env.bak .env
     fi
 
-    # Stop and remove containers
-    docker stop postgres_cosmo_ecosystem object_storage_cosmo_ecosystem redis_cosmo_ecosystem >/dev/null 2>&1 || true
-    docker rm postgres_cosmo_ecosystem object_storage_cosmo_ecosystem redis_cosmo_ecosystem >/dev/null 2>&1 || true
-    docker compose down >/dev/null 2>&1 || true
+    # Remove only what this run started: the test project's containers and volumes.
+    # --no-services never started any, so there is nothing to remove.
+    if [ "$START_SERVICES" -eq 1 ]; then
+        test_compose down -v >/dev/null 2>&1 || true
+    fi
+    rm -f "$OVERRIDE_FILE"
 }
 
 # Service health check with retry logic
@@ -44,6 +57,9 @@ show_help() {
     echo ""
     echo "This script manages the test environment: backs up .env, starts Docker"
     echo "services, runs pytest, then restores .env and stops services on exit."
+    echo "The services run as compose project ${TEST_PROJECT} with containers"
+    echo "${TEST_POSTGRES}, ${TEST_OBJECT_STORAGE}, ${TEST_REDIS};"
+    echo "the dev stack's containers are never touched."
     echo ""
     echo "Options:"
     echo "  --headed          Run browser tests with visible browser (for debugging)"
@@ -70,7 +86,6 @@ show_help() {
 }
 
 # Parse command line arguments
-START_SERVICES=1
 HEADED=false
 ARTIFACTS=true
 KEEP_ARTIFACTS=false
@@ -109,6 +124,19 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Arguments are parsed; from here on the run owns state worth cleaning up.
+OVERRIDE_FILE=$(mktemp --suffix=.yml)
+cat > "$OVERRIDE_FILE" <<EOF
+services:
+  postgres:
+    container_name: ${TEST_POSTGRES}
+  object-storage:
+    container_name: ${TEST_OBJECT_STORAGE}
+  redis:
+    container_name: ${TEST_REDIS}
+EOF
+trap cleaning_up EXIT
+
 # Backup existing .env
 if [ -f .env ]; then
     mv .env .env.bak
@@ -121,18 +149,18 @@ cp env_test .env
 source .env
 
 if [ "$START_SERVICES" -eq 1 ]; then
-    # Clean up existing containers
-    docker compose down 2>/dev/null || true
+    # Clear leftovers of a crashed earlier test run (test project only)
+    test_compose down -v 2>/dev/null || true
 
     # Start services (quiet output)
     echo "Starting services: postgres, object-storage, redis"
-    docker compose up postgres object-storage redis -d --quiet-pull
+    test_compose up postgres object-storage redis -d --quiet-pull
 
     # Wait for services with retry logic
-    check_service "docker exec postgres_cosmo_ecosystem pg_isready -q 2>/dev/null" "PostgreSQL"
+    check_service 'docker exec "$TEST_POSTGRES" pg_isready -q 2>/dev/null' "PostgreSQL"
     # The compose healthcheck owns the server-specific probe; this only reads its verdict.
-    check_service "docker inspect -f '{{.State.Health.Status}}' object_storage_cosmo_ecosystem 2>/dev/null | grep -qx healthy" "Object storage"
-    check_service "docker exec redis_cosmo_ecosystem redis-cli ping 2>/dev/null | grep -q PONG" "Redis"
+    check_service 'docker inspect -f "{{.State.Health.Status}}" "$TEST_OBJECT_STORAGE" 2>/dev/null | grep -qx healthy' "Object storage"
+    check_service 'docker exec "$TEST_REDIS" redis-cli ping 2>/dev/null | grep -q PONG' "Redis"
 else
     echo "Skipping service management (assuming services already running)"
 fi
