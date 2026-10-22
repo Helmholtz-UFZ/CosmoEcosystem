@@ -27,7 +27,8 @@ from cosmo_ecosystem.error_handling import (
     JobExists,
     JobNotFound,
 )
-from cosmo_ecosystem.job_retention import days_to_live, delete_job
+from cosmo_ecosystem.job_persistence import delete_job
+from cosmo_ecosystem.job_retention import days_to_live
 from cosmo_ecosystem.object_storage_manager import (
     delete_directory_from_storage,
     delete_file_from_storage,

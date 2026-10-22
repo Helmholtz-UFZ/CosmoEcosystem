@@ -12,10 +12,20 @@ logs to the database is a later step.
 
 import logging
 import os
+import shutil
+
+from sqlalchemy.exc import SQLAlchemyError
 
 from cosmo_ecosystem.config import JOB_WORK_DIR_TEMPLATE
 from cosmo_ecosystem.db_manager import DbManager
-from cosmo_ecosystem.object_storage_manager import get_files, upload_files
+from cosmo_ecosystem.error_handling import JobDeletionFailed, JobNotFound
+from cosmo_ecosystem.object_storage_manager import (
+    ObjectStorageError,
+    delete_directory_from_storage,
+    delete_file_from_storage,
+    get_files,
+    upload_files,
+)
 
 log = logging.getLogger(__name__)
 
@@ -65,3 +75,78 @@ def save(job_id: str, row: dict) -> None:
     """
     upload_files(job_id)
     DbManager.add_entry({**row, "job_id": job_id})
+
+
+def delete_files(job_id: str, paths: list[str]) -> None:
+    """Delete files or dirs from the job's work dir and its remote prefix.
+
+    Paths are relative to the work dir. Both sides are deleted in this call,
+    because a later upload deletes nothing remote (ADR 0001) and a later pull
+    would bring a remote leftover back. Whatever is already gone on either
+    side counts as deleted.
+
+    Raises:
+        ObjectStorageError: If the remote deletion fails.
+    """
+    for path in paths:
+        log.info(f"Delete {path} of job {job_id}.")
+        # ``rclone delete`` removes a single object or every object below a
+        # prefix, and succeeds on a missing path.
+        delete_file_from_storage(f"{job_id}/{path}")
+        local_path = os.path.join(JOB_WORK_DIR_TEMPLATE.format(job_id=job_id), path)
+        try:
+            shutil.rmtree(local_path)
+        except NotADirectoryError:
+            os.remove(local_path)
+        except FileNotFoundError:
+            log.debug(f"{path} of job {job_id} is not in the local work dir.")
+
+
+def delete_job(job_id: str) -> None:
+    """Delete a job everywhere: its remote prefix, local work dir and row.
+
+    Works from any pod, and whatever part is already gone counts as deleted.
+    The row goes last because it is the retry handle: if a storage step
+    raises, the row survives and the job is still listed for deleting again.
+
+    Raises:
+        ObjectStorageError: If the remote prefix could not be deleted.
+    """
+    log.info(f"Delete job {job_id}.")
+    # A missing prefix is not an error here, which is what makes a job that
+    # never uploaded anything deletable (see "Gotchas" in object_storage.md).
+    delete_directory_from_storage(job_id)
+    try:
+        shutil.rmtree(JOB_WORK_DIR_TEMPLATE.format(job_id=job_id))
+    except FileNotFoundError:
+        log.debug(f"Job {job_id} has no local work dir on this pod.")
+    try:
+        DbManager.delete_job(job_id)
+    except JobNotFound:
+        log.debug(f"Job {job_id} has no database row any more.")
+
+
+def delete_jobs(job_ids: list[str]) -> None:
+    """Delete every job in job_ids everywhere; one failure does not stop the rest.
+
+    The dashboard "Delete" on a multi-row selection.
+
+    Raises:
+        JobDeletionFailed: After all jobs were tried, naming those that could
+            not be deleted. They keep their row and can be deleted again.
+    """
+    failed_ids = delete_each(job_ids)
+    if failed_ids:
+        raise JobDeletionFailed(failed_ids)
+
+
+def delete_each(job_ids: list[str]) -> list[str]:
+    """Delete each job, logging and skipping failures; return the failed ids."""
+    failed_ids = []
+    for job_id in job_ids:
+        try:
+            delete_job(job_id)
+        except (ObjectStorageError, OSError, SQLAlchemyError) as error:
+            log.error(f"Could not delete job {job_id}: {error}", exc_info=True)
+            failed_ids.append(job_id)
+    return failed_ids

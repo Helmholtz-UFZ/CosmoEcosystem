@@ -15,7 +15,8 @@ from cosmo_ecosystem.config import (
 from cosmo_ecosystem.constants import DAYS_DELETE_NOT_SUBMITTED, DAYS_DELETE_SUBMITTED
 from cosmo_ecosystem.db_manager import DbManager
 from cosmo_ecosystem.error_handling import JobCleanupFailed, JobDeletionFailed
-from cosmo_ecosystem.job_retention import clean_up_jobs, delete_job, delete_jobs
+from cosmo_ecosystem.job_persistence import delete_job, delete_jobs
+from cosmo_ecosystem.job_retention import clean_up_jobs
 from cosmo_ecosystem import job_retention, object_storage_manager
 from cosmo_ecosystem.object_storage_manager import (
     ObjectStorageError,

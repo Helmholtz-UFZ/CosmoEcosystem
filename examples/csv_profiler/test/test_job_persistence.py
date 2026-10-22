@@ -3,10 +3,11 @@
 import datetime
 import os
 import shutil
+import warnings
 
 import pytest
 
-from cosmo_ecosystem import object_storage_manager
+from cosmo_ecosystem import job_retention, object_storage_manager
 from cosmo_ecosystem.config import (
     JOB_WORK_DIR_TEMPLATE,
     OBJECT_STORAGE_BUCKET,
@@ -14,7 +15,16 @@ from cosmo_ecosystem.config import (
 )
 from cosmo_ecosystem.db_manager import DbManager
 from cosmo_ecosystem.error_handling import JobNotFound
-from cosmo_ecosystem.job_persistence import load_row, save, update_columns, work_dir
+from cosmo_ecosystem.job_retention import clean_up_jobs
+from cosmo_ecosystem.job_persistence import (
+    delete_files,
+    delete_job,
+    delete_jobs,
+    load_row,
+    save,
+    update_columns,
+    work_dir,
+)
 from cosmo_ecosystem.object_storage_manager import (
     ObjectStorageError,
     delete_directory_from_storage,
@@ -63,8 +73,9 @@ def _row(job_id, **overrides):
 
 def _write(job_id, name, content):
     """Write a file into job_id's local work dir."""
-    os.makedirs(_dir(job_id), exist_ok=True)
-    with open(os.path.join(_dir(job_id), name), "w", encoding="UTF-8") as f_handle:
+    path = os.path.join(_dir(job_id), name)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="UTF-8") as f_handle:
         f_handle.write(content)
 
 
@@ -230,4 +241,118 @@ def test_saving_writes_no_row_when_the_upload_fails(monkeypatch):
     finally:
         # Restore the real remote first, so the cleanup reaches the job's prefix.
         monkeypatch.undo()
+        _cleanup(job_id)
+
+
+def test_deleting_a_file_and_a_dir_removes_both_locally_and_remotely():
+    """One call clears the work dir and the remote prefix; nothing waits on a sync."""
+    job_id = "test_persistence_delete_files"
+    _write(job_id, FILE_NAME, FRESH)
+    _write(job_id, "keep.csv", FRESH)
+    _write(job_id, "plots/a.png", FRESH)
+    _write(job_id, "plots/b.png", FRESH)
+    save(job_id, _row(job_id))
+
+    try:
+        delete_files(job_id, [FILE_NAME, "plots"])
+
+        assert sorted(os.listdir(_dir(job_id))) == ["keep.csv"]
+        assert _remote_files(job_id) == {"keep.csv"}
+    finally:
+        _cleanup(job_id)
+
+
+def test_deleting_a_file_that_exists_only_remotely_removes_it():
+    """The work dir is a cache: a file never pulled here is still deleted."""
+    job_id = "test_persistence_delete_files_remote_only"
+    _seed_remote(job_id, FILE_NAME, FRESH)
+    os.makedirs(_dir(job_id))
+
+    try:
+        delete_files(job_id, [FILE_NAME])
+
+        assert _remote_files(job_id) == set()
+    finally:
+        _cleanup(job_id)
+
+
+def test_deleting_a_file_that_exists_only_locally_removes_it():
+    """A file never uploaded is deleted too."""
+    job_id = "test_persistence_delete_files_local_only"
+    _seed_remote(job_id, "keep.csv", FRESH)
+    _write(job_id, FILE_NAME, FRESH)
+
+    try:
+        delete_files(job_id, [FILE_NAME])
+
+        assert os.listdir(_dir(job_id)) == []
+        assert _remote_files(job_id) == {"keep.csv"}
+    finally:
+        _cleanup(job_id)
+
+
+def test_deleting_a_file_that_is_nowhere_counts_as_deleted():
+    """A retry after a partial failure, or a double click, must not raise."""
+    job_id = "test_persistence_delete_files_missing"
+    _write(job_id, "keep.csv", FRESH)
+    save(job_id, _row(job_id))
+
+    try:
+        delete_files(job_id, ["gone.csv", "no_dir"])
+
+        assert os.listdir(_dir(job_id)) == ["keep.csv"]
+        assert _remote_files(job_id) == {"keep.csv"}
+    finally:
+        _cleanup(job_id)
+
+
+def test_deleting_files_of_a_job_without_a_remote_prefix_counts_as_deleted():
+    """A job that never uploaded anything has no prefix to delete from."""
+    job_id = "test_persistence_delete_files_no_prefix"
+    _write(job_id, FILE_NAME, FRESH)
+
+    try:
+        delete_files(job_id, [FILE_NAME])
+
+        assert os.listdir(_dir(job_id)) == []
+    finally:
+        _cleanup(job_id)
+
+
+def test_delete_job_removes_prefix_dir_and_row_from_its_new_location():
+    """Deleting a job clears everything it owns."""
+    job_id = "test_persistence_delete_job"
+    _write(job_id, FILE_NAME, FRESH)
+    save(job_id, _row(job_id))
+
+    delete_job(job_id)
+
+    assert _remote_files(job_id) == set()
+    assert not os.path.exists(_dir(job_id))
+    assert not DbManager.check_existence(job_id)
+
+
+def test_importing_delete_job_from_job_retention_warns():
+    """The old import path keeps working for one version, loudly."""
+    with pytest.warns(DeprecationWarning, match="job_persistence"):
+        old_delete_job = job_retention.delete_job
+    with pytest.warns(DeprecationWarning, match="job_persistence"):
+        old_delete_jobs = job_retention.delete_jobs
+
+    assert old_delete_job is delete_job
+    assert old_delete_jobs is delete_jobs
+
+
+def test_cleaning_up_jobs_does_not_warn():
+    """The framework's own cleanup uses the new location silently."""
+    job_id = "test_persistence_cleanup_silent"
+    DbManager.add_entry(_row(job_id, start_date=datetime.date(2000, 1, 1)))
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", DeprecationWarning)
+            clean_up_jobs()
+
+        assert not DbManager.check_existence(job_id)
+    finally:
         _cleanup(job_id)
