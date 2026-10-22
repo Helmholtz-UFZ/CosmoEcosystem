@@ -1,9 +1,12 @@
 # Mirrors the framework-lint and example-lint jobs in .gitlab-ci.yml.
-# The ruff hooks run from the project venvs so the version matches CI (uv.lock).
+# The ruff hooks are local `uv run` hooks, not ruff-pre-commit: they use the ruff locked
+# in uv.lock, exactly like CI, so local and CI results cannot drift apart.
 repos:
 - repo: https://github.com/pre-commit/pre-commit-hooks
   rev: v2.3.0
   hooks:
+    - id: check-yaml
+      files: '\.py$'
     - id: end-of-file-fixer
       files: '\.py$'
     - id: trailing-whitespace

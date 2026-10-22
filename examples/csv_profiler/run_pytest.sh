@@ -3,7 +3,6 @@
 set -e
 
 START_SERVICES=1
-trap cleaning_up EXIT
 
 # The test stack is its own compose project with its own container names, so it can
 # never collide with (or tear down) the dev stack from docker-compose.yml, which
@@ -12,16 +11,6 @@ TEST_PROJECT="cosmo_ecosystem_test"
 TEST_POSTGRES="postgres_cosmo_ecosystem_test"
 TEST_OBJECT_STORAGE="object_storage_cosmo_ecosystem_test"
 TEST_REDIS="redis_cosmo_ecosystem_test"
-OVERRIDE_FILE=$(mktemp --suffix=.yml)
-cat > "$OVERRIDE_FILE" <<EOF
-services:
-  postgres:
-    container_name: ${TEST_POSTGRES}
-  object-storage:
-    container_name: ${TEST_OBJECT_STORAGE}
-  redis:
-    container_name: ${TEST_REDIS}
-EOF
 test_compose() {
     docker compose --project-directory . -p "$TEST_PROJECT" -f docker-compose.yml -f "$OVERRIDE_FILE" "$@"
 }
@@ -135,6 +124,19 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Arguments are parsed; from here on the run owns state worth cleaning up.
+OVERRIDE_FILE=$(mktemp --suffix=.yml)
+cat > "$OVERRIDE_FILE" <<EOF
+services:
+  postgres:
+    container_name: ${TEST_POSTGRES}
+  object-storage:
+    container_name: ${TEST_OBJECT_STORAGE}
+  redis:
+    container_name: ${TEST_REDIS}
+EOF
+trap cleaning_up EXIT
+
 # Backup existing .env
 if [ -f .env ]; then
     mv .env .env.bak
@@ -155,10 +157,10 @@ if [ "$START_SERVICES" -eq 1 ]; then
     test_compose up postgres object-storage redis -d --quiet-pull
 
     # Wait for services with retry logic
-    check_service "docker exec "$TEST_POSTGRES" pg_isready -q 2>/dev/null" "PostgreSQL"
+    check_service 'docker exec "$TEST_POSTGRES" pg_isready -q 2>/dev/null' "PostgreSQL"
     # The compose healthcheck owns the server-specific probe; this only reads its verdict.
-    check_service "docker inspect -f '{{.State.Health.Status}}' "$TEST_OBJECT_STORAGE" 2>/dev/null | grep -qx healthy" "Object storage"
-    check_service "docker exec "$TEST_REDIS" redis-cli ping 2>/dev/null | grep -q PONG" "Redis"
+    check_service 'docker inspect -f "{{.State.Health.Status}}" "$TEST_OBJECT_STORAGE" 2>/dev/null | grep -qx healthy' "Object storage"
+    check_service 'docker exec "$TEST_REDIS" redis-cli ping 2>/dev/null | grep -q PONG' "Redis"
 else
     echo "Skipping service management (assuming services already running)"
 fi
