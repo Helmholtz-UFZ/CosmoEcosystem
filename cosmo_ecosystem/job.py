@@ -19,7 +19,6 @@ import coolname
 from werkzeug.utils import secure_filename
 
 from cosmo_ecosystem.base_job import BaseJob
-from cosmo_ecosystem.config import JOB_WORK_DIR_TEMPLATE
 from cosmo_ecosystem.constants import LOG_FILE_NAME
 from cosmo_ecosystem.db_manager import DbManager
 from cosmo_ecosystem.error_handling import (
@@ -27,13 +26,8 @@ from cosmo_ecosystem.error_handling import (
     JobExists,
     JobNotFound,
 )
-from cosmo_ecosystem.job_retention import days_to_live, delete_job
-from cosmo_ecosystem.object_storage_manager import (
-    delete_directory_from_storage,
-    delete_file_from_storage,
-    get_files,
-    save_files,
-)
+from cosmo_ecosystem import job_persistence
+from cosmo_ecosystem.job_retention import days_to_live
 from cosmo_ecosystem.pydantic_models import UploadJobConfig, validate_job_id
 
 log = logging.getLogger(__name__)
@@ -49,6 +43,10 @@ except PackageNotFoundError:
     FRAMEWORK_VERSION = "unknown"
 
 SEED = os.urandom(128)
+
+# Columns the framework Job reads and writes beyond `JobColumns` (see "The
+# extra-column contract" in docs/conventions/database_schema.md).
+REQUIRED_EXTRA_COLUMNS = ("input_data", "logs")
 
 
 def find_unique_job_id() -> str:
@@ -89,6 +87,9 @@ class Job(BaseJob):
     logs: str
     status: Literal["PENDING", "RUNNING", "COMPLETED", "FAILED"]
     version: str
+    # The path of the job's local work dir. Setting it costs nothing, so the dir
+    # may be absent or stale: whoever reads or writes job files first calls
+    # `job_persistence.work_dir(job_id)`.
     working_dir: str
 
     def __init__(
@@ -97,7 +98,7 @@ class Job(BaseJob):
         new_job_id=None,
         model=None,
         *,
-        overwrite=False,
+        overwrite=None,
     ):
         """Init class either by id, by model or make a new one.
 
@@ -105,10 +106,9 @@ class Job(BaseJob):
             job_id: Load this existing job.
             new_job_id: Create a new job under this id.
             model: Create a job from an already-built config model.
-            overwrite: Only meaningful with ``job_id``. Replace local files
-                that differ from object storage. A worker picking up a job on
-                a pod with a stale working directory needs this; the web
-                process, which may hold local edits not yet uploaded, does not.
+            overwrite: Deprecated and ignored. Loading a job reads its row only;
+                ``job_persistence.work_dir`` fetches files and always lets
+                object storage win. Will be removed in the next version.
         """
         if self.config_model is None:
             raise RuntimeError(
@@ -116,13 +116,35 @@ class Job(BaseJob):
                 "UploadJobConfig subclass (via `Job.config_model = <YourConfig>`) "
                 "at startup before constructing a Job."
             )
+        self._check_job_table_columns()
+        if overwrite is not None:
+            warnings.warn(
+                "Job(overwrite=...) is ignored and will be removed: loading a "
+                "job reads its row only, and job_persistence.work_dir() fetches "
+                "files from object storage.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
         if job_id is not None:
             self.job_id = job_id
-            self.load(overwrite=overwrite)
+            self.load()
         elif model is not None:
             self._init_from_model(model)
         else:
             self._blank_job(new_job_id)
+
+    @staticmethod
+    def _check_job_table_columns():
+        """Raise if the app's job table lacks a column this Job reads or writes."""
+        table_columns = DbManager._job_table().__table__.columns.keys()
+        for name in REQUIRED_EXTRA_COLUMNS:
+            if name not in table_columns:
+                raise RuntimeError(
+                    f"The job table {DbManager.job_table.__name__} has no column "
+                    f"'{name}' — the framework Job reads and writes it. Add it "
+                    f"to the table and its DDL, see "
+                    f"docs/conventions/database_schema.md."
+                )
 
     def __str__(self):
         """Represent class as string."""
@@ -141,11 +163,11 @@ class Job(BaseJob):
         """Store the job's unique id."""
         self._job_id = value
 
-    def load(self, overwrite=False):
-        """Load job from database and store files in working dir.
+    def load(self):
+        """Load the job's row from the database. No rclone call.
 
-        Args:
-            overwrite: Passed to ``get_files`` — see ``__init__``.
+        The files are not fetched: call ``job_persistence.work_dir(job_id)``
+        before reading or writing any of them.
         """
         log.info(f"Load submission {self.job_id}")
 
@@ -156,7 +178,7 @@ class Job(BaseJob):
 
         log.debug(f"Job id: {self.job_id} is valid")
 
-        for name, value in DbManager.get_job_columns(self.job_id).items():
+        for name, value in job_persistence.load_row(self.job_id).items():
             log.debug((f"Load column {name}"))
             if name == "input_data":
                 self.model = self.config_model(**json.loads(value))
@@ -164,12 +186,7 @@ class Job(BaseJob):
 
         log.debug(f"Job {self.job_id} loaded from database")
 
-        self.working_dir = JOB_WORK_DIR_TEMPLATE.format(job_id=self.job_id)
-        os.makedirs(self.working_dir, exist_ok=True)
-        get_files(self.job_id, overwrite=overwrite)
-        log.debug(
-            f"Job {self.job_id} files downloaded from object storage",
-        )
+        self.working_dir = job_persistence.local_dir(self.job_id)
 
     def _init_from_model(self, model):
         """Initialize job from model."""
@@ -181,7 +198,7 @@ class Job(BaseJob):
         self.logs = ""
         self.status = "PENDING"
         self.version = self.app_version
-        self.working_dir = JOB_WORK_DIR_TEMPLATE.format(job_id=self.job_id)
+        self.working_dir = job_persistence.local_dir(self.job_id)
         os.makedirs(self.working_dir, exist_ok=True)
         self.dump_parameters()
         self.save()
@@ -206,7 +223,7 @@ class Job(BaseJob):
         self.logs = ""
         self.status = "PENDING"
         self.version = self.app_version
-        self.working_dir = JOB_WORK_DIR_TEMPLATE.format(job_id=self.job_id)
+        self.working_dir = job_persistence.local_dir(self.job_id)
         shutil.rmtree(self.working_dir, ignore_errors=True)
         os.makedirs(self.working_dir, exist_ok=True)
         self.dump_parameters()
@@ -232,14 +249,7 @@ class Job(BaseJob):
         log.debug(
             f"Delete item {item_name} from job {self.job_id}",
         )
-
-        item_path = os.path.join(self.working_dir, item_name)
-        if os.path.isfile(item_path):
-            os.remove(item_path)
-            delete_file_from_storage(f"{self.job_id}/{item_name}")
-        elif os.path.isdir(item_path):
-            shutil.rmtree(item_path)
-            delete_directory_from_storage(f"{self.job_id}/{item_name}")
+        job_persistence.delete_files(self.job_id, [item_name])
 
     def upload_file(self, content_type, content_string, file_name):
         """Sanitize, decode, validate, and save an uploaded CSV file.
@@ -248,6 +258,10 @@ class Job(BaseJob):
         Raises FileValidationError if the file is not a valid CSV.
         """
         safe_name = secure_filename(file_name)
+
+        # The save below uploads the whole work dir, so it must not hold
+        # anything staler than the remote prefix.
+        self.working_dir = job_persistence.work_dir(self.job_id)
 
         if self.model.upload_file_name is not None:
             self.delete_item(self.model.upload_file_name)
@@ -301,29 +315,30 @@ class Job(BaseJob):
         )
         data_to_insert = {name: self._get_column_data(name) for name in attribute_list}
         try:
-            DbManager.update_column(self.job_id, data_to_insert)
+            job_persistence.update_columns(self.job_id, data_to_insert)
         except JobNotFound:
             self.save()
+
+    def _row(self):
+        """Return the job's full row as a dict, validating its input_data."""
+        column_names = DbManager._job_table().__table__.columns.keys()
+        row = {name: self._get_column_data(name) for name in column_names}
+        self.config_model(**json.loads(row["input_data"]))
+        return row
 
     def save_to_db(self):
         """Save the job attributes to the database."""
         log.debug(f"Save job {self.job_id} to database")
-        column_names = DbManager._job_table().__table__.columns.keys()
-        data_to_insert = {name: self._get_column_data(name) for name in column_names}
-        for key, value in data_to_insert.items():
-            if key == "input_data":
-                self.config_model(**json.loads(value))
-        DbManager.add_entry(data_to_insert)
+        DbManager.add_entry(self._row())
 
     def save(self):
         """Save the job files to object storage and attributes to the database."""
         log.debug(f"Save job {self.job_id}")
-        save_files(self.job_id)
-        self.save_to_db()
+        job_persistence.save(self.job_id, self._row())
 
     def delete(self):
         """Delete the job from the database, the local disk and storage."""
-        delete_job(self.job_id)
+        job_persistence.delete_job(self.job_id)
 
     def submit(self):
         """Submit job to Celery queue for background processing."""
@@ -335,17 +350,20 @@ class Job(BaseJob):
 
         self.submitted = True
 
-        # Upload files BEFORE submitting to Celery — the worker may write to
-        # remote storage immediately, which would cause save_files' verification
-        # to see unexpected files and fail.
-        save_files(self.job_id)
-
         if self.submit_handler is None:
             raise RuntimeError(
                 "Job.submit_handler is not set — the application must inject a "
                 "submit handler (via `Job.submit_handler = <your_submit_fn>`) "
                 "at startup before submitting a Job."
             )
+
+        # Save BEFORE enqueuing: pull first so the dir exists and holds nothing
+        # stale, then upload and write the submitted row. Nothing is synced
+        # after the enqueue, because a worker on a shared disk may already be
+        # writing files; only the status is written then.
+        self.working_dir = job_persistence.work_dir(self.job_id)
+        job_persistence.save(self.job_id, self._row())
+
         _celery_task_id, failed = self.submit_handler(self)
         if failed:
             log.error(f"Job {self.job_id} failed to start.")
@@ -353,7 +371,7 @@ class Job(BaseJob):
         else:
             self.status = "RUNNING"
 
-        self.save_to_db()
+        job_persistence.update_columns(self.job_id, {"status": self.status})
 
     def time_to_live(self):
         """Return the number of days after which this job will be deleted."""
@@ -392,10 +410,15 @@ class Job(BaseJob):
         """Reset job to PENDING and clean all results (keeps uploaded CSV)."""
         log.info(f"Reset job {self.job_id}")
         self.status = "PENDING"
-        for file in os.listdir(self.working_dir):
-            if file == self.model.upload_file_name:
-                continue
-            self.delete_item(file)
+        self.working_dir = job_persistence.work_dir(self.job_id)
+        job_persistence.delete_files(
+            self.job_id,
+            [
+                file
+                for file in os.listdir(self.working_dir)
+                if file != self.model.upload_file_name
+            ],
+        )
         self.delete_logs()
         self.dump_parameters()
         self.save()

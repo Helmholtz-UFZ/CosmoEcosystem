@@ -27,7 +27,8 @@ class BaseJob(ABC):
     class instead of adopting the concrete ``cosmo_ecosystem.job.Job``.
 
     A route or callback that needs more than the contract says so in its own
-    docstring; ``serve_files`` for instance also needs ``working_dir``.
+    docstring; ``serve_files`` for instance also needs nothing beyond ``job_id``
+    and the constructor, because it fetches the files itself.
     """
 
     @property

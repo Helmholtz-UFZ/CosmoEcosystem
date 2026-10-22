@@ -7,9 +7,11 @@ import zipfile
 
 import dash_bootstrap_components as dbc
 from dash import html
-from flask import send_file, send_from_directory
+from flask import abort, send_file, send_from_directory
 
+from cosmo_ecosystem import job_persistence
 from cosmo_ecosystem.constants import DOWNLOAD_BUTTON_SHARED_ID
+from cosmo_ecosystem.error_handling import InvalidJobID, JobNotFound
 from cosmo_ecosystem.job import Job
 
 log = logging.getLogger(__name__)
@@ -47,18 +49,28 @@ def serve_files(app, *, job_class=Job):
 
             Beyond the ``BaseJob`` contract these routes need two things from
             the class: it must be constructible as ``job_class(job_id)``,
-            raising for an unknown or malformed id, and instances must expose
-            ``working_dir``.
+            raising ``JobNotFound`` or ``InvalidJobID`` for an unknown or
+            malformed id (the routes answer 404), and instances must expose
+            ``job_id``. The routes fetch the files themselves, through
+            ``job_persistence.work_dir``.
     """
+
+    def resolve(job_id):
+        """Return the job for job_id, or answer 404 if it is unknown or malformed."""
+        try:
+            return job_class(job_id)
+        except (JobNotFound, InvalidJobID):
+            abort(404)
 
     @app.server.route("/pictures/<job_id>/<path:filename>")
     def serve_file(job_id, filename):
         """Serve pictures."""
         log.debug(f"Serve picture {filename} for {job_id}")
-        # Assure that the job exists and all files are ready
-        job = job_class(job_id)
+        # Assure that the job exists, then make the files current
+        job = resolve(job_id)
+        work_dir = job_persistence.work_dir(job.job_id)
 
-        response = send_from_directory(job.working_dir, filename)
+        response = send_from_directory(work_dir, filename)
 
         # Add cache control headers to prevent browser caching
         response.headers["Cache-Control"] = (
@@ -79,14 +91,15 @@ def serve_files(app, *, job_class=Job):
         object, never from user input.
         """
         log.info(f"Download work dir for {job_id}")
-        job = job_class(job_id)
+        job = resolve(job_id)
+        work_dir = job_persistence.work_dir(job.job_id)
 
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_file:
-            for root, _dirs, files in os.walk(job.working_dir):
+            for root, _dirs, files in os.walk(work_dir):
                 for file_name in files:
                     file_path = os.path.join(root, file_name)
-                    arcname = os.path.relpath(file_path, job.working_dir)
+                    arcname = os.path.relpath(file_path, work_dir)
                     zip_file.write(file_path, arcname)
 
         zip_buffer.seek(0)

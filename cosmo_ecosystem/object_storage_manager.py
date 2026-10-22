@@ -8,6 +8,7 @@ and in CI — see docs/conventions/object_storage.md).
 import configparser
 import logging
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -209,6 +210,7 @@ def run_rclone_with_retry(
                 timeout=timeout,
             )
             check_result(params, result)
+            return result
         except subprocess.TimeoutExpired:
             # Not retried: a command that ran into its timeout has no reason to
             # succeed within the same budget on the next attempt.
@@ -222,8 +224,6 @@ def run_rclone_with_retry(
                 time.sleep(retry_delay)
             else:
                 raise
-
-    return result
 
 
 def _rclone_config_path() -> str:
@@ -397,6 +397,48 @@ def get_files(
         raise ObjectStorageError(error_msg)
 
 
+def get_file(dirname: str, path: str, timeout: float = TRANSFER_TIMEOUT) -> None:
+    """Download one file of a job's remote prefix over its local copy.
+
+    One ``rclone copy --checksum`` of the file's directory, filtered to that one
+    name and not recursive: the remote wins, an identical local file is not
+    transferred, and no listing or verification follows, which is what makes it
+    cheap enough for hot read paths. A file the remote lacks is left alone and
+    is not an error; a local copy stays as it is. ``rclone copyto`` would be the
+    obvious command but fails on a missing source whenever a local copy exists,
+    which is exactly the case that must be kept.
+
+    Args:
+        dirname: Name of the job directory
+        path: File path relative to the job directory
+        timeout: Seconds before a single download attempt is killed
+
+    Raises:
+        ObjectStorageError: If the download fails
+    """
+    parent, name = os.path.split(path)
+    local_parent = os.path.join(JOB_WORK_DIR_TEMPLATE.format(job_id=dirname), parent)
+    remote_parent = "/".join(part for part in (dirname, parent) if part)
+    remote_path = (
+        f"{OBJECT_STORAGE_REMOTE_NAME}:{OBJECT_STORAGE_BUCKET}/{remote_parent}"
+    )
+    # Anchored with a leading slash, and glob characters escaped so the name
+    # matches itself only.
+    include = "/" + re.sub(r"([*?\[\]{}\\])", r"\\\1", name)
+    copy_params = [
+        "rclone",
+        "copy",
+        remote_path,
+        local_parent,
+        "--include",
+        include,
+        "--max-depth",
+        "1",
+        "--checksum",
+    ]
+    run_rclone_with_retry(copy_params, timeout=timeout, check_connection=True)
+
+
 def save_files(dirname: str, timeout: float = TRANSFER_TIMEOUT) -> None:
     """Upload files from local work directory to object storage.
 
@@ -446,6 +488,54 @@ def save_files(dirname: str, timeout: float = TRANSFER_TIMEOUT) -> None:
             f"Upload verification failed for {dirname}!\n"
             f"Files from local: {sorted(local_files_before)}\n"
             f"Files from remote: {sorted(remote_files_after)}"
+        )
+        log.error(error_msg)
+        raise ObjectStorageError(error_msg)
+
+
+def upload_files(dirname: str, timeout: float = TRANSFER_TIMEOUT) -> None:
+    """Upload files from local work directory to object storage, deleting nothing.
+
+    This copies local files to the remote with ``rclone copy --checksum``: new and
+    changed files are uploaded, remote files missing locally stay. Use
+    ``save_files`` to make the remote identical to local.
+
+    Args:
+        dirname: Name of the directory to upload
+        timeout: Seconds before a single upload attempt is killed
+
+    Raises:
+        ObjectStorageError: If upload fails or a local file is missing remotely
+    """
+    log.debug(
+        f"Uploading files to object storage for {dirname} without deleting",
+    )
+    local_path = JOB_WORK_DIR_TEMPLATE.format(job_id=dirname)
+    remote_path = f"{OBJECT_STORAGE_REMOTE_NAME}:{OBJECT_STORAGE_BUCKET}/{dirname}"
+
+    # Listed before the upload, not after, because concurrent workers may create
+    # new files between the copy and the verification.
+    local_files_before = get_local_files(local_path)
+
+    copy_params = [
+        "rclone",
+        "copy",
+        local_path,
+        remote_path,
+        "--checksum",
+    ]
+    run_rclone_with_retry(copy_params, timeout=timeout, check_connection=True)
+
+    # Remote may hold more than local (that is the point of copy), so the check
+    # is that local is a subset of remote, not equality.
+    remote_files = get_remote_files(remote_path)
+    if not local_files_before.issubset(remote_files):
+        missing_files = local_files_before - remote_files
+        error_msg = (
+            f"Upload verification failed for {dirname}!\n"
+            f"Missing files from local: {sorted(missing_files)}\n"
+            f"Files from local: {sorted(local_files_before)}\n"
+            f"Files from remote: {sorted(remote_files)}"
         )
         log.error(error_msg)
         raise ObjectStorageError(error_msg)

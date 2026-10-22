@@ -33,7 +33,7 @@ URLs. Nothing in `cosmo_ecosystem/` knows which server sits behind
   `setup_remote()` and `create_bucket()`, which do it for every server.
 - **Pin exact image tags.** Never `latest`.
 - **Never sweep the bucket.** Delete a job's remote prefix only through
-  `cosmo_ecosystem.job_retention.delete_job`, for a job whose row is being
+  `cosmo_ecosystem.job_persistence.delete_job`, for a job whose row is being
   deleted. A rowless prefix or local dir proves nothing: COSMOPOLITAN's stage and
   prod databases share the bucket `cosmopolitan-prod`, so a sweep run from stage
   would delete every prod job. Leftovers are reviewed by hand with the orphan

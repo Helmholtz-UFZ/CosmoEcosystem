@@ -133,6 +133,33 @@ concrete class, same as `input_data` and `logs` above.
 
 ---
 
+## The framework `Job`'s extra-column contract
+
+`JobColumns` fixes the six columns every app has. The concrete
+`cosmo_ecosystem.job.Job` needs two more and reads and writes them on every load
+and save:
+
+| Column | Holds |
+| --- | --- |
+| `input_data` | the config model as a JSON string (`model_dump_json`) |
+| `logs` | the job log text |
+
+An app that uses `Job` declares both on its table, as in the `JobTable` example
+above, and in its own `init.sql`. An app with its own job class (COSMONAUT) needs
+neither.
+
+`Job.__init__` checks `DbManager.job_table` and raises `RuntimeError` naming the
+missing column, the same fail-loud pattern as `Job.config_model is None`. Without
+the check the first query against the column fails at runtime, in whichever
+callback touches the job first. The required names are
+`job.REQUIRED_EXTRA_COLUMNS`.
+
+`Job(job_id)` reads the row only and runs no rclone. Code that reads or writes the
+job's files calls `job_persistence.work_dir(job_id)` first; see
+[ADR 0001](../adr/0001-remote-prefix-is-authoritative.md).
+
+---
+
 ## `LogTable`
 
 `LogTable` is the one table that lifted cleanly: identical in all three code

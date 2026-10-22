@@ -103,6 +103,10 @@ layout = page_container_column_layout([
 ])
 ```
 
+**Job files:** `Job(job_id)` reads the database row only, so it is cheap enough for
+polls. A page that reads or writes the job's files first calls
+`job_persistence.work_dir(job_id)` and uses the path it returns.
+
 **Dynamic layout** (needs job state or computed values):
 
 ```python

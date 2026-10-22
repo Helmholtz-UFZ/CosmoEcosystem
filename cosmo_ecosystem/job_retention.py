@@ -6,27 +6,20 @@ import os
 import shutil
 import sys
 import time
+import warnings
 from dataclasses import dataclass, field
 from datetime import date
 
-from sqlalchemy.exc import SQLAlchemyError
-
 from cosmo_ecosystem.config import (
-    JOB_WORK_DIR_TEMPLATE,
     OBJECT_STORAGE_BUCKET,
     WEB_WORK_DIR,
 )
 from cosmo_ecosystem.constants import DAYS_DELETE_NOT_SUBMITTED, DAYS_DELETE_SUBMITTED
 from cosmo_ecosystem.db_manager import DbManager
-from cosmo_ecosystem.error_handling import (
-    JobCleanupFailed,
-    JobDeletionFailed,
-    JobNotFound,
-)
+from cosmo_ecosystem.error_handling import JobCleanupFailed
+from cosmo_ecosystem import job_persistence
 from cosmo_ecosystem.object_storage_manager import (
-    ObjectStorageError,
     bucket_exists,
-    delete_directory_from_storage,
     list_top_level_prefixes,
     setup_remote,
 )
@@ -49,54 +42,24 @@ class CleanupSummary:
     removed_local_dirs: list[str] = field(default_factory=list)
 
 
-def delete_job(job_id: str) -> None:
-    """Delete a job everywhere: its remote prefix, local work dir and row.
-
-    Works from any pod, and whatever part is already gone counts as deleted.
-    The row goes last because it is the retry handle: if a storage step
-    raises, the row survives and the job is still listed for deleting again.
-
-    Raises:
-        ObjectStorageError: If the remote prefix could not be deleted.
-    """
-    log.info(f"Delete job {job_id}.")
-    # A missing prefix is not an error here, which is what makes a job that
-    # never uploaded anything deletable (see "Gotchas" in object_storage.md).
-    delete_directory_from_storage(job_id)
-    try:
-        shutil.rmtree(JOB_WORK_DIR_TEMPLATE.format(job_id=job_id))
-    except FileNotFoundError:
-        log.debug(f"Job {job_id} has no local work dir on this pod.")
-    try:
-        DbManager.delete_job(job_id)
-    except JobNotFound:
-        log.debug(f"Job {job_id} has no database row any more.")
+# delete_job and delete_jobs moved to job_persistence. A module-level
+# __getattr__ warns exactly when a consumer reaches for the old names, which a
+# plain re-export cannot: it would warn on every import of this module, and
+# clean_up_jobs lives here too. Remove it one version after 0.11.
+_MOVED_TO_PERSISTENCE = ("delete_job", "delete_jobs")
 
 
-def delete_jobs(job_ids: list[str]) -> None:
-    """Delete every job in job_ids everywhere; one failure does not stop the rest.
-
-    The dashboard "Delete" on a multi-row selection.
-
-    Raises:
-        JobDeletionFailed: After all jobs were tried, naming those that could
-            not be deleted. They keep their row and can be deleted again.
-    """
-    failed_ids = _delete_each(job_ids)
-    if failed_ids:
-        raise JobDeletionFailed(failed_ids)
-
-
-def _delete_each(job_ids: list[str]) -> list[str]:
-    """Delete each job, logging and skipping failures; return the failed ids."""
-    failed_ids = []
-    for job_id in job_ids:
-        try:
-            delete_job(job_id)
-        except (ObjectStorageError, OSError, SQLAlchemyError) as error:
-            log.error(f"Could not delete job {job_id}: {error}", exc_info=True)
-            failed_ids.append(job_id)
-    return failed_ids
+def __getattr__(name: str):
+    if name in _MOVED_TO_PERSISTENCE:
+        warnings.warn(
+            f"cosmo_ecosystem.job_retention.{name} moved to "
+            f"cosmo_ecosystem.job_persistence.{name} and will be removed from "
+            "job_retention.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return getattr(job_persistence, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def days_to_live(
@@ -138,7 +101,7 @@ def clean_up_jobs(
         else:
             expired_ids.append(job_id)
 
-    summary.failed_ids = _delete_each(expired_ids)
+    summary.failed_ids = job_persistence.delete_jobs_returning_failures(expired_ids)
     summary.deleted_ids = [
         job_id for job_id in expired_ids if job_id not in summary.failed_ids
     ]

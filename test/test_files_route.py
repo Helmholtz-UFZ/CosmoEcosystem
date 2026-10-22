@@ -12,6 +12,8 @@ import zipfile
 import dash
 import pytest
 
+from cosmo_ecosystem import job_persistence
+from cosmo_ecosystem.error_handling import InvalidJobID, JobNotFound
 from cosmo_ecosystem.files_route import serve_files
 
 
@@ -24,15 +26,24 @@ class FakeJob:
         """Record the id the route resolved and expose a working directory."""
         FakeJob.constructed.append(job_id)
         self.job_id = job_id
-        self.working_dir = str(FakeJob.working_dir)
 
 
 @pytest.fixture
-def client(tmp_path):
-    """A Flask test client for an app whose routes use FakeJob."""
+def client(tmp_path, monkeypatch):
+    """A Flask test client for an app whose routes use FakeJob.
+
+    ``work_dir`` is replaced by a stand-in that records the id it was asked to
+    fetch and hands back a local dir: the framework suite has no object storage.
+    """
     (tmp_path / "result.csv").write_text("column,value\na,1\n")
     FakeJob.constructed = []
-    FakeJob.working_dir = tmp_path
+    FakeJob.fetched = []
+
+    def fake_work_dir(job_id):
+        FakeJob.fetched.append(job_id)
+        return str(tmp_path)
+
+    monkeypatch.setattr(job_persistence, "work_dir", fake_work_dir)
 
     app = dash.Dash(__name__)
     # Dash validates the layout on the first request, whatever the route.
@@ -47,6 +58,7 @@ def test_download_route_uses_the_injected_job_class(client):
 
     assert response.status_code == 200
     assert FakeJob.constructed == ["quiet_amber_otter"]
+    assert FakeJob.fetched == ["quiet_amber_otter"]
 
     with zipfile.ZipFile(io.BytesIO(response.data)) as archive:
         assert archive.namelist() == ["result.csv"]
@@ -65,6 +77,7 @@ def test_picture_route_serves_from_the_job_working_dir(client):
     assert response.status_code == 200
     assert response.data == b"column,value\na,1\n"
     assert FakeJob.constructed == ["quiet_amber_otter"]
+    assert FakeJob.fetched == ["quiet_amber_otter"]
     assert response.headers["Cache-Control"] == (
         "no-store, no-cache, must-revalidate, max-age=0"
     )
@@ -86,3 +99,21 @@ def test_default_job_class_keeps_serve_files_call_sites_working():
     routes = {rule.rule for rule in app.server.url_map.iter_rules()}
     assert "/download/<job_id>.zip" in routes
     assert "/pictures/<job_id>/<path:filename>" in routes
+
+
+@pytest.mark.parametrize("error", [JobNotFound("no_such_job"), InvalidJobID("no/such")])
+@pytest.mark.parametrize(
+    "url", ["/download/no_such_job.zip", "/pictures/no_such_job/result.csv"]
+)
+def test_an_unknown_or_malformed_job_is_a_404_not_a_500(error, url):
+    """Both routes answer 404 when the job class rejects the id."""
+
+    class RejectingJob:
+        def __init__(self, job_id):
+            raise error
+
+    app = dash.Dash(__name__)
+    app.layout = dash.html.Div()
+    serve_files(app, job_class=RejectingJob)
+
+    assert app.server.test_client().get(url).status_code == 404
