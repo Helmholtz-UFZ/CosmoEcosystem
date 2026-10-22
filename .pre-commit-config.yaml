@@ -6,7 +6,9 @@ repos:
   rev: v2.3.0
   hooks:
     - id: check-yaml
-      files: '\.py$'
+      files: '\.ya?ml$'
+      # Syntax only: .gitlab-ci.yml uses GitLab's !reference tag.
+      args: [--unsafe]
     - id: end-of-file-fixer
       files: '\.py$'
     - id: trailing-whitespace
