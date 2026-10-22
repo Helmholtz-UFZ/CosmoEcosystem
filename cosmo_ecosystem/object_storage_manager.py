@@ -210,6 +210,7 @@ def run_rclone_with_retry(
                 timeout=timeout,
             )
             check_result(params, result)
+            return result
         except subprocess.TimeoutExpired:
             # Not retried: a command that ran into its timeout has no reason to
             # succeed within the same budget on the next attempt.
@@ -223,8 +224,6 @@ def run_rclone_with_retry(
                 time.sleep(retry_delay)
             else:
                 raise
-
-    return result
 
 
 def _rclone_config_path() -> str:

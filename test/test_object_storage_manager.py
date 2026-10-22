@@ -118,6 +118,21 @@ def test_setup_remote_keeps_the_keys_off_the_command_line(monkeypatch, tmp_path)
     assert sorted(p.name for p in config_path.parent.iterdir()) == ["rclone.conf"]
 
 
+def test_a_successful_rclone_command_runs_once(monkeypatch):
+    """The retry loop stops at the first success instead of repeating it."""
+    calls = []
+
+    def fake_run(params, **kwargs):
+        calls.append(params)
+        return subprocess.CompletedProcess(params, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(object_storage_manager.subprocess, "run", fake_run)
+
+    object_storage_manager.run_rclone_with_retry(["rclone", "ls", "remote:bucket"])
+
+    assert len(calls) == 1
+
+
 def test_create_bucket_does_not_mistake_a_longer_name_for_the_bucket(monkeypatch):
     calls = []
 
