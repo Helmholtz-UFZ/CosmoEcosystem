@@ -13,7 +13,6 @@ import pytest
 
 from cosmo_ecosystem import job_retention, object_storage_manager
 from cosmo_ecosystem.config import (
-    JOB_WORK_DIR_TEMPLATE,
     OBJECT_STORAGE_BUCKET,
     OBJECT_STORAGE_REMOTE_NAME,
 )
@@ -27,6 +26,8 @@ from cosmo_ecosystem.job_persistence import (
     delete_job,
     delete_jobs,
     load_row,
+    local_dir,
+    pull_file,
     save,
     update_columns,
     work_dir,
@@ -61,7 +62,7 @@ def rclone_calls(monkeypatch):
 
 def _dir(job_id):
     """Return the local work directory of job_id."""
-    return JOB_WORK_DIR_TEMPLATE.format(job_id=job_id)
+    return local_dir(job_id)
 
 
 def _row(job_id, **overrides):
@@ -213,6 +214,20 @@ def test_saving_uploads_the_work_dir_and_writes_the_row():
         assert load_row(job_id)["status"] == "RUNNING"
         save(job_id, _row(job_id, status="COMPLETED"))
         assert load_row(job_id)["status"] == "COMPLETED"
+    finally:
+        _cleanup(job_id)
+
+
+def test_saving_a_job_whose_work_dir_does_not_exist_writes_the_row():
+    """A job saved from a pod that never held its files uploads nothing, no error."""
+    job_id = "test_persistence_save_no_dir"
+    shutil.rmtree(_dir(job_id), ignore_errors=True)
+
+    try:
+        save(job_id, _row(job_id, status="RUNNING"))
+
+        assert load_row(job_id)["status"] == "RUNNING"
+        assert _remote_files(job_id) == set()
     finally:
         _cleanup(job_id)
 
@@ -453,5 +468,97 @@ def test_a_served_picture_and_download_are_current_when_the_local_copy_was_stale
         assert picture.data == FRESH.encode()
         with zipfile.ZipFile(io.BytesIO(download.data)) as archive:
             assert archive.read(FILE_NAME) == FRESH.encode()
+    finally:
+        _cleanup(job_id)
+
+
+def test_submitting_the_framework_job_saves_before_the_enqueue_and_only_the_status_after(
+    framework_job, rclone_calls, monkeypatch
+):
+    """The worker may already write files once enqueued, so nothing is synced then."""
+    job_id = "test_persistence_job_submit"
+    DbManager.add_entry(_job_row(job_id))
+    _write(job_id, FILE_NAME, FRESH)
+    seen = {}
+
+    def handler(job):
+        seen["remote_files"] = _remote_files(job_id)
+        seen["row"] = load_row(job_id)
+        seen["calls_at_enqueue"] = len(rclone_calls)
+        return "task-id", False
+
+    monkeypatch.setattr(Job, "submit_handler", staticmethod(handler))
+
+    try:
+        Job(job_id=job_id).submit()
+
+        assert seen["remote_files"] == {FILE_NAME}
+        assert seen["row"]["submitted"] is True
+        assert len(rclone_calls) == seen["calls_at_enqueue"]
+        assert load_row(job_id)["status"] == "RUNNING"
+    finally:
+        _cleanup(job_id)
+
+
+def test_pull_file_replaces_a_stale_local_file_with_one_rclone_transfer(rclone_calls):
+    """The hot read path: one file, remote wins, one transfer call.
+
+    run_rclone_with_retry is counted once per transfer; its connection check
+    (``rclone lsd``) is a separate subprocess it starts itself, so the transfer
+    makes two rclone subprocesses in total. The command is ``rclone copy`` of
+    the one file's directory, not ``copyto``, which fails on a missing source.
+    """
+    job_id = "test_persistence_pull_file"
+    _write(job_id, FILE_NAME, FRESH)
+    _write(job_id, "other.csv", FRESH)
+    save_files(job_id)
+    shutil.rmtree(_dir(job_id))
+    _write(job_id, FILE_NAME, STALE)
+    _write(job_id, "other.csv", STALE)
+    rclone_calls.clear()
+
+    try:
+        path = pull_file(job_id, FILE_NAME)
+
+        assert path == os.path.join(_dir(job_id), FILE_NAME)
+        assert _read(job_id, FILE_NAME) == FRESH
+        assert _read(job_id, "other.csv") == STALE
+        assert [call[1] for call in rclone_calls] == ["copy"]
+    finally:
+        _cleanup(job_id)
+
+
+def test_pull_file_fetches_a_file_in_a_subdirectory_whose_name_has_glob_characters():
+    """The filter matches the name itself, not as a pattern."""
+    job_id = "test_persistence_pull_file_nested"
+    name = os.path.join("plots", "[a]*.csv")
+    _write(job_id, name, FRESH)
+    _write(job_id, os.path.join("plots", "ab.csv"), FRESH)
+    save_files(job_id)
+    shutil.rmtree(_dir(job_id))
+
+    try:
+        path = pull_file(job_id, name)
+
+        assert _read(job_id, name) == FRESH
+        assert os.listdir(os.path.dirname(path)) == ["[a]*.csv"]
+    finally:
+        _cleanup(job_id)
+
+
+def test_pull_file_of_a_file_the_remote_lacks_keeps_the_local_copy(rclone_calls):
+    """Missing remotely is not an error: the caller checks whether the path exists."""
+    job_id = "test_persistence_pull_file_missing"
+    _write(job_id, FILE_NAME, STALE)
+
+    try:
+        path = pull_file(job_id, FILE_NAME)
+
+        assert path == os.path.join(_dir(job_id), FILE_NAME)
+        assert _read(job_id, FILE_NAME) == STALE
+        assert pull_file(job_id, "never_existed.csv") == os.path.join(
+            _dir(job_id), "never_existed.csv"
+        )
+        assert not os.path.exists(os.path.join(_dir(job_id), "never_existed.csv"))
     finally:
         _cleanup(job_id)

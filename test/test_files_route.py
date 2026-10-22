@@ -13,6 +13,7 @@ import dash
 import pytest
 
 from cosmo_ecosystem import job_persistence
+from cosmo_ecosystem.error_handling import InvalidJobID, JobNotFound
 from cosmo_ecosystem.files_route import serve_files
 
 
@@ -98,3 +99,21 @@ def test_default_job_class_keeps_serve_files_call_sites_working():
     routes = {rule.rule for rule in app.server.url_map.iter_rules()}
     assert "/download/<job_id>.zip" in routes
     assert "/pictures/<job_id>/<path:filename>" in routes
+
+
+@pytest.mark.parametrize("error", [JobNotFound("no_such_job"), InvalidJobID("no/such")])
+@pytest.mark.parametrize(
+    "url", ["/download/no_such_job.zip", "/pictures/no_such_job/result.csv"]
+)
+def test_an_unknown_or_malformed_job_is_a_404_not_a_500(error, url):
+    """Both routes answer 404 when the job class rejects the id."""
+
+    class RejectingJob:
+        def __init__(self, job_id):
+            raise error
+
+    app = dash.Dash(__name__)
+    app.layout = dash.html.Div()
+    serve_files(app, job_class=RejectingJob)
+
+    assert app.server.test_client().get(url).status_code == 404

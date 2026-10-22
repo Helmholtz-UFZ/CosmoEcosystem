@@ -18,7 +18,6 @@ from cosmo_ecosystem.constants import DAYS_DELETE_NOT_SUBMITTED, DAYS_DELETE_SUB
 from cosmo_ecosystem.db_manager import DbManager
 from cosmo_ecosystem.error_handling import JobCleanupFailed
 from cosmo_ecosystem import job_persistence
-from cosmo_ecosystem.job_persistence import delete_each
 from cosmo_ecosystem.object_storage_manager import (
     bucket_exists,
     list_top_level_prefixes,
@@ -102,7 +101,7 @@ def clean_up_jobs(
         else:
             expired_ids.append(job_id)
 
-    summary.failed_ids = delete_each(expired_ids)
+    summary.failed_ids = job_persistence.delete_jobs_returning_failures(expired_ids)
     summary.deleted_ids = [
         job_id for job_id in expired_ids if job_id not in summary.failed_ids
     ]

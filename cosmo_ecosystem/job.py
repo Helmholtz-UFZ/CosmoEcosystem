@@ -19,7 +19,6 @@ import coolname
 from werkzeug.utils import secure_filename
 
 from cosmo_ecosystem.base_job import BaseJob
-from cosmo_ecosystem.config import JOB_WORK_DIR_TEMPLATE
 from cosmo_ecosystem.constants import LOG_FILE_NAME
 from cosmo_ecosystem.db_manager import DbManager
 from cosmo_ecosystem.error_handling import (
@@ -29,7 +28,6 @@ from cosmo_ecosystem.error_handling import (
 )
 from cosmo_ecosystem import job_persistence
 from cosmo_ecosystem.job_retention import days_to_live
-from cosmo_ecosystem.object_storage_manager import upload_files
 from cosmo_ecosystem.pydantic_models import UploadJobConfig, validate_job_id
 
 log = logging.getLogger(__name__)
@@ -188,7 +186,7 @@ class Job(BaseJob):
 
         log.debug(f"Job {self.job_id} loaded from database")
 
-        self.working_dir = JOB_WORK_DIR_TEMPLATE.format(job_id=self.job_id)
+        self.working_dir = job_persistence.local_dir(self.job_id)
 
     def _init_from_model(self, model):
         """Initialize job from model."""
@@ -200,7 +198,7 @@ class Job(BaseJob):
         self.logs = ""
         self.status = "PENDING"
         self.version = self.app_version
-        self.working_dir = JOB_WORK_DIR_TEMPLATE.format(job_id=self.job_id)
+        self.working_dir = job_persistence.local_dir(self.job_id)
         os.makedirs(self.working_dir, exist_ok=True)
         self.dump_parameters()
         self.save()
@@ -225,7 +223,7 @@ class Job(BaseJob):
         self.logs = ""
         self.status = "PENDING"
         self.version = self.app_version
-        self.working_dir = JOB_WORK_DIR_TEMPLATE.format(job_id=self.job_id)
+        self.working_dir = job_persistence.local_dir(self.job_id)
         shutil.rmtree(self.working_dir, ignore_errors=True)
         os.makedirs(self.working_dir, exist_ok=True)
         self.dump_parameters()
@@ -263,7 +261,7 @@ class Job(BaseJob):
 
         # The save below uploads the whole work dir, so it must not hold
         # anything staler than the remote prefix.
-        job_persistence.work_dir(self.job_id)
+        self.working_dir = job_persistence.work_dir(self.job_id)
 
         if self.model.upload_file_name is not None:
             self.delete_item(self.model.upload_file_name)
@@ -352,18 +350,20 @@ class Job(BaseJob):
 
         self.submitted = True
 
-        # Upload files BEFORE submitting to Celery. The upload deletes nothing
-        # remote, so the worker writing to storage meanwhile is harmless; the
-        # pull first makes sure the dir exists and holds nothing stale.
-        job_persistence.work_dir(self.job_id)
-        upload_files(self.job_id)
-
         if self.submit_handler is None:
             raise RuntimeError(
                 "Job.submit_handler is not set — the application must inject a "
                 "submit handler (via `Job.submit_handler = <your_submit_fn>`) "
                 "at startup before submitting a Job."
             )
+
+        # Save BEFORE enqueuing: pull first so the dir exists and holds nothing
+        # stale, then upload and write the submitted row. Nothing is synced
+        # after the enqueue, because a worker on a shared disk may already be
+        # writing files; only the status is written then.
+        self.working_dir = job_persistence.work_dir(self.job_id)
+        job_persistence.save(self.job_id, self._row())
+
         _celery_task_id, failed = self.submit_handler(self)
         if failed:
             log.error(f"Job {self.job_id} failed to start.")
@@ -371,7 +371,7 @@ class Job(BaseJob):
         else:
             self.status = "RUNNING"
 
-        self.save_to_db()
+        job_persistence.update_columns(self.job_id, {"status": self.status})
 
     def time_to_live(self):
         """Return the number of days after which this job will be deleted."""
@@ -410,7 +410,7 @@ class Job(BaseJob):
         """Reset job to PENDING and clean all results (keeps uploaded CSV)."""
         log.info(f"Reset job {self.job_id}")
         self.status = "PENDING"
-        job_persistence.work_dir(self.job_id)
+        self.working_dir = job_persistence.work_dir(self.job_id)
         job_persistence.delete_files(
             self.job_id,
             [

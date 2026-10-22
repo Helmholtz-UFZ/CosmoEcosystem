@@ -8,6 +8,7 @@ and in CI — see docs/conventions/object_storage.md).
 import configparser
 import logging
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -395,6 +396,46 @@ def get_files(
         )
         log.error(error_msg)
         raise ObjectStorageError(error_msg)
+
+
+def get_file(dirname: str, path: str, timeout: float = TRANSFER_TIMEOUT) -> None:
+    """Download one file of a job's remote prefix over its local copy.
+
+    One ``rclone copy --checksum`` of the file's directory, filtered to that one
+    name and not recursive: the remote wins, an identical local file is not
+    transferred, and no listing or verification follows, which is what makes it
+    cheap enough for hot read paths. A file the remote lacks is left alone and
+    is not an error; a local copy stays as it is. ``rclone copyto`` would be the
+    obvious command but fails on a missing source whenever a local copy exists,
+    which is exactly the case that must be kept.
+
+    Args:
+        dirname: Name of the job directory
+        path: File path relative to the job directory
+        timeout: Seconds before a single download attempt is killed
+
+    Raises:
+        ObjectStorageError: If the download fails
+    """
+    parent, name = os.path.split(path)
+    local_parent = os.path.join(JOB_WORK_DIR_TEMPLATE.format(job_id=dirname), parent)
+    remote_parent = "/".join(part for part in (dirname, parent) if part)
+    remote_path = f"{OBJECT_STORAGE_REMOTE_NAME}:{OBJECT_STORAGE_BUCKET}/{remote_parent}"
+    # Anchored with a leading slash, and glob characters escaped so the name
+    # matches itself only.
+    include = "/" + re.sub(r"([*?\[\]{}\\])", r"\\\1", name)
+    copy_params = [
+        "rclone",
+        "copy",
+        remote_path,
+        local_parent,
+        "--include",
+        include,
+        "--max-depth",
+        "1",
+        "--checksum",
+    ]
+    run_rclone_with_retry(copy_params, timeout=timeout, check_connection=True)
 
 
 def save_files(dirname: str, timeout: float = TRANSFER_TIMEOUT) -> None:

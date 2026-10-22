@@ -23,11 +23,17 @@ from cosmo_ecosystem.object_storage_manager import (
     ObjectStorageError,
     delete_directory_from_storage,
     delete_file_from_storage,
+    get_file,
     get_files,
     upload_files,
 )
 
 log = logging.getLogger(__name__)
+
+
+def local_dir(job_id: str) -> str:
+    """Return the path of the job's local work dir. Pure: no rclone, no mkdir."""
+    return JOB_WORK_DIR_TEMPLATE.format(job_id=job_id)
 
 
 def load_row(job_id: str) -> dict:
@@ -58,10 +64,26 @@ def work_dir(job_id: str) -> str:
     Raises:
         ObjectStorageError: If the download fails.
     """
-    path = JOB_WORK_DIR_TEMPLATE.format(job_id=job_id)
+    path = local_dir(job_id)
     os.makedirs(path, exist_ok=True)
     get_files(job_id, overwrite=True)
     return path
+
+
+def pull_file(job_id: str, path: str) -> str:
+    """Make one file of the job current with its remote copy; return its local path.
+
+    For read paths too hot for a full ``work_dir`` pull: one
+    ``rclone copyto --checksum``, the remote prefix wins (ADR 0001). Path is
+    relative to the work dir. If the remote has no such file nothing happens and
+    no error is raised: a local copy is kept as it is, and the returned path may
+    not exist, so the caller checks ``os.path.exists`` on it.
+
+    Raises:
+        ObjectStorageError: If the download fails for another reason.
+    """
+    get_file(job_id, path)
+    return os.path.join(local_dir(job_id), path)
 
 
 def save(job_id: str, row: dict) -> None:
@@ -73,6 +95,8 @@ def save(job_id: str, row: dict) -> None:
     Raises:
         ObjectStorageError: If the upload fails; no row is written then.
     """
+    # A pod that never held the files has no dir; uploading it is a no-op.
+    os.makedirs(local_dir(job_id), exist_ok=True)
     upload_files(job_id)
     DbManager.add_entry({**row, "job_id": job_id})
 
@@ -93,7 +117,7 @@ def delete_files(job_id: str, paths: list[str]) -> None:
         # ``rclone delete`` removes a single object or every object below a
         # prefix, and succeeds on a missing path.
         delete_file_from_storage(f"{job_id}/{path}")
-        local_path = os.path.join(JOB_WORK_DIR_TEMPLATE.format(job_id=job_id), path)
+        local_path = os.path.join(local_dir(job_id), path)
         try:
             shutil.rmtree(local_path)
         except NotADirectoryError:
@@ -117,7 +141,7 @@ def delete_job(job_id: str) -> None:
     # never uploaded anything deletable (see "Gotchas" in object_storage.md).
     delete_directory_from_storage(job_id)
     try:
-        shutil.rmtree(JOB_WORK_DIR_TEMPLATE.format(job_id=job_id))
+        shutil.rmtree(local_dir(job_id))
     except FileNotFoundError:
         log.debug(f"Job {job_id} has no local work dir on this pod.")
     try:
@@ -135,12 +159,12 @@ def delete_jobs(job_ids: list[str]) -> None:
         JobDeletionFailed: After all jobs were tried, naming those that could
             not be deleted. They keep their row and can be deleted again.
     """
-    failed_ids = delete_each(job_ids)
+    failed_ids = delete_jobs_returning_failures(job_ids)
     if failed_ids:
         raise JobDeletionFailed(failed_ids)
 
 
-def delete_each(job_ids: list[str]) -> list[str]:
+def delete_jobs_returning_failures(job_ids: list[str]) -> list[str]:
     """Delete each job, logging and skipping failures; return the failed ids."""
     failed_ids = []
     for job_id in job_ids:
