@@ -451,6 +451,54 @@ def save_files(dirname: str, timeout: float = TRANSFER_TIMEOUT) -> None:
         raise ObjectStorageError(error_msg)
 
 
+def upload_files(dirname: str, timeout: float = TRANSFER_TIMEOUT) -> None:
+    """Upload files from local work directory to object storage, deleting nothing.
+
+    This copies local files to the remote with ``rclone copy --checksum``: new and
+    changed files are uploaded, remote files missing locally stay. Use
+    ``save_files`` to make the remote identical to local.
+
+    Args:
+        dirname: Name of the directory to upload
+        timeout: Seconds before a single upload attempt is killed
+
+    Raises:
+        ObjectStorageError: If upload fails or a local file is missing remotely
+    """
+    log.debug(
+        f"Uploading files to object storage for {dirname} without deleting",
+    )
+    local_path = JOB_WORK_DIR_TEMPLATE.format(job_id=dirname)
+    remote_path = f"{OBJECT_STORAGE_REMOTE_NAME}:{OBJECT_STORAGE_BUCKET}/{dirname}"
+
+    # Listed before the upload, not after, because concurrent workers may create
+    # new files between the copy and the verification.
+    local_files_before = get_local_files(local_path)
+
+    copy_params = [
+        "rclone",
+        "copy",
+        local_path,
+        remote_path,
+        "--checksum",
+    ]
+    run_rclone_with_retry(copy_params, timeout=timeout, check_connection=True)
+
+    # Remote may hold more than local (that is the point of copy), so the check
+    # is that local is a subset of remote, not equality.
+    remote_files = get_remote_files(remote_path)
+    if not local_files_before.issubset(remote_files):
+        missing_files = local_files_before - remote_files
+        error_msg = (
+            f"Upload verification failed for {dirname}!\n"
+            f"Missing files from local: {sorted(missing_files)}\n"
+            f"Files from local: {sorted(local_files_before)}\n"
+            f"Files from remote: {sorted(remote_files)}"
+        )
+        log.error(error_msg)
+        raise ObjectStorageError(error_msg)
+
+
 def delete_file_from_storage(filepath: str, timeout: float = CONTROL_TIMEOUT) -> None:
     """Delete a file from the object storage using rclone.
 
