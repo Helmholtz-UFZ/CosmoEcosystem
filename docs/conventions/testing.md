@@ -205,6 +205,8 @@ failed CI twice, once on `domain-free` and once on root (below).
 | `example-lint` | in `examples/csv_profiler/`: `uv run ruff format --check .`, `uv run ruff check .`, `uv lock --check` |
 | `example-test` | in `examples/csv_profiler/`: `./run_pytest.sh` |
 
+`.pre-commit-config.yaml` runs the lint commands of `framework-lint` and `example-lint` (ruff format, ruff check, `uv lock --check`) on commit; install once with `uvx pre-commit install`, check everything with `uvx pre-commit run --all-files`.
+
 `domain-free` is the one that surprises: the framework package must not *mention*
 the example domain anywhere in Python, docstrings and comments included. Write
 `<app>.celery_app`, not `csv_profiler.celery_app`.

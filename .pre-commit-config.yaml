@@ -1,18 +1,52 @@
+# Mirrors the framework-lint and example-lint jobs in .gitlab-ci.yml.
+# The ruff hooks run from the project venvs so the version matches CI (uv.lock).
 repos:
 - repo: https://github.com/pre-commit/pre-commit-hooks
   rev: v2.3.0
   hooks:
-    - id: check-yaml
-      files: '\.py$'
     - id: end-of-file-fixer
       files: '\.py$'
     - id: trailing-whitespace
       files: '\.py$'
-- repo: https://github.com/astral-sh/ruff-pre-commit
-  rev: v0.15.6
+- repo: local
   hooks:
-    - id: ruff-format
+    - id: framework-ruff-format
+      name: framework ruff format --check
+      entry: uv run ruff format --check cosmo_ecosystem test
+      language: system
+      pass_filenames: false
       types_or: [python, pyi]
-    - id: ruff
+      files: '^(cosmo_ecosystem|test)/'
+    - id: framework-ruff
+      name: framework ruff check
+      entry: uv run ruff check cosmo_ecosystem test
+      language: system
+      pass_filenames: false
       types_or: [python, pyi]
-      args: [--fix]
+      files: '^(cosmo_ecosystem|test)/'
+    - id: framework-uv-lock
+      name: framework uv lock --check
+      entry: uv lock --check
+      language: system
+      pass_filenames: false
+      files: '^(pyproject\.toml|uv\.lock)$'
+    - id: example-ruff-format
+      name: example ruff format --check
+      entry: bash -c 'cd examples/csv_profiler && uv run ruff format --check .'
+      language: system
+      pass_filenames: false
+      types_or: [python, pyi]
+      files: '^examples/csv_profiler/'
+    - id: example-ruff
+      name: example ruff check
+      entry: bash -c 'cd examples/csv_profiler && uv run ruff check .'
+      language: system
+      pass_filenames: false
+      types_or: [python, pyi]
+      files: '^examples/csv_profiler/'
+    - id: example-uv-lock
+      name: example uv lock --check
+      entry: bash -c 'cd examples/csv_profiler && uv lock --check'
+      language: system
+      pass_filenames: false
+      files: '^examples/csv_profiler/(pyproject\.toml|uv\.lock)$'
