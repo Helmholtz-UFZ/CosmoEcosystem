@@ -419,7 +419,9 @@ def get_file(dirname: str, path: str, timeout: float = TRANSFER_TIMEOUT) -> None
     parent, name = os.path.split(path)
     local_parent = os.path.join(JOB_WORK_DIR_TEMPLATE.format(job_id=dirname), parent)
     remote_parent = "/".join(part for part in (dirname, parent) if part)
-    remote_path = f"{OBJECT_STORAGE_REMOTE_NAME}:{OBJECT_STORAGE_BUCKET}/{remote_parent}"
+    remote_path = (
+        f"{OBJECT_STORAGE_REMOTE_NAME}:{OBJECT_STORAGE_BUCKET}/{remote_parent}"
+    )
     # Anchored with a leading slash, and glob characters escaped so the name
     # matches itself only.
     include = "/" + re.sub(r"([*?\[\]{}\\])", r"\\\1", name)
