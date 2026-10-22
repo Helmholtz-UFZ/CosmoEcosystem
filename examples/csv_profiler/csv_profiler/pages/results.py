@@ -15,6 +15,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from dash import Input, Output, callback, dcc, html
 
+from cosmo_ecosystem import job_persistence
 from cosmo_ecosystem.error_handling import InvalidJobID, JobNotFound
 from cosmo_ecosystem.files_route import create_download_button
 from cosmo_ecosystem.job import Job
@@ -68,7 +69,7 @@ def load_results(job_id):
         log.info(f"Job not accessible {job_id}: {e}")
         return job_not_found_layout(job_id)
 
-    result_path = os.path.join(job.working_dir, "result.json")
+    result_path = os.path.join(job_persistence.work_dir(job_id), "result.json")
     if not os.path.exists(result_path):
         message = (
             f"Job status: {job.status}. Results not available yet."

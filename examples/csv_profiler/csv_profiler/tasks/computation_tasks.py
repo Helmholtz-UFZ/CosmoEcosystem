@@ -8,6 +8,7 @@ from logging.config import dictConfig
 
 from celery import Task
 
+from cosmo_ecosystem import job_persistence
 from cosmo_ecosystem.constants import LOG_FILE_NAME
 from cosmo_ecosystem.job import Job
 
@@ -49,11 +50,10 @@ def start_computation_task(self, job_id):
     """
     log.info(f"Starting computation for job {job_id}")
     try:
-        # overwrite=True: a worker's working directory must mirror object
-        # storage. The default keeps existing local files, which is what the
-        # web process wants (it may hold edits not yet uploaded) but would let
-        # a stale copy on this pod shadow the input the user just submitted.
-        job = Job(job_id=job_id, overwrite=True)
+        job = Job(job_id=job_id)
+        # Object storage wins: a stale copy on this pod must not shadow the
+        # input the user just submitted.
+        job_persistence.work_dir(job_id)
         log.debug("Job loaded")
 
         # Set up file-based logging for this computation

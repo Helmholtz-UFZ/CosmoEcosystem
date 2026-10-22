@@ -10,6 +10,7 @@ import dash
 import dash_bootstrap_components as dbc
 from dash import Input, Output, State, callback, callback_context, dcc, html
 from dash_form_factory import FormFactory
+from cosmo_ecosystem import job_persistence
 from cosmo_ecosystem.constants import (
     RESET_JOB_STORE_SHARED_ID,
     URL_LOCATION_SHARED_ID,
@@ -313,6 +314,8 @@ def check_input(**inputs):
         model.job_id = job_id
         model.upload_file_name = inputs["uploaded_file_name"]["file_name"]
         job = Job(job_id=job_id)
+        # save() uploads the whole work dir: start from the remote state.
+        job_persistence.work_dir(job_id)
         job.model = model
         job.dump_parameters()
         job.save()

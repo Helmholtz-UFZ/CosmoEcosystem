@@ -1,10 +1,14 @@
 """Test the framework's job persistence against real Postgres and S3 servers."""
 
 import datetime
+import io
+import json
 import os
 import shutil
 import warnings
+import zipfile
 
+import dash
 import pytest
 
 from cosmo_ecosystem import job_retention, object_storage_manager
@@ -15,6 +19,8 @@ from cosmo_ecosystem.config import (
 )
 from cosmo_ecosystem.db_manager import DbManager
 from cosmo_ecosystem.error_handling import JobNotFound
+from cosmo_ecosystem.files_route import serve_files
+from cosmo_ecosystem.job import Job
 from cosmo_ecosystem.job_retention import clean_up_jobs
 from cosmo_ecosystem.job_persistence import (
     delete_files,
@@ -31,6 +37,8 @@ from cosmo_ecosystem.object_storage_manager import (
     get_remote_files,
     save_files,
 )
+
+from csv_profiler.pydantic_models import ProfileConfig
 
 FILE_NAME = "result.csv"
 STALE = "stale\n"
@@ -354,5 +362,96 @@ def test_cleaning_up_jobs_does_not_warn():
             clean_up_jobs()
 
         assert not DbManager.check_existence(job_id)
+    finally:
+        _cleanup(job_id)
+
+
+# --- the framework Job and the files route on top of the module -------------
+
+
+@pytest.fixture
+def framework_job(monkeypatch):
+    """Wire the framework Job to the CSV domain, as app.py does at startup."""
+    monkeypatch.setattr(Job, "config_model", ProfileConfig)
+    monkeypatch.setattr(Job, "file_validator", None)
+
+
+def _job_row(job_id, **overrides):
+    """Return a complete row whose input_data the framework Job can parse.
+
+    The framework Job stores input_data as a JSON string, not a JSON object.
+    """
+    return _row(job_id, input_data=json.dumps({"job_id": job_id}), **overrides)
+
+
+def test_a_status_poll_of_the_framework_job_makes_no_rclone_call(
+    framework_job, rclone_calls
+):
+    """Loading a Job and refreshing its logs, as the 2 s poll does, stays off rclone."""
+    job_id = "test_persistence_job_poll"
+    DbManager.add_entry(_job_row(job_id, status="RUNNING"))
+
+    try:
+        job = Job(job_id=job_id)
+        job.reload_logs()
+
+        assert job.status == "RUNNING"
+        assert rclone_calls == []
+    finally:
+        _cleanup(job_id)
+
+
+def test_the_overwrite_argument_warns_and_changes_nothing(framework_job, rclone_calls):
+    """overwrite= is accepted for one version and ignored."""
+    job_id = "test_persistence_job_overwrite"
+    DbManager.add_entry(_job_row(job_id))
+
+    try:
+        with pytest.warns(DeprecationWarning, match="overwrite"):
+            job = Job(job_id=job_id, overwrite=True)
+
+        assert job.job_id == job_id
+        assert rclone_calls == []
+    finally:
+        _cleanup(job_id)
+
+
+def test_deleting_an_item_of_the_framework_job_removes_it_locally_and_remotely(
+    framework_job,
+):
+    """delete_item goes through delete_files, whichever pod holds the local copy."""
+    job_id = "test_persistence_job_delete_item"
+    DbManager.add_entry(_job_row(job_id))
+    _seed_remote(job_id, FILE_NAME, FRESH)
+
+    try:
+        Job(job_id=job_id).delete_item(FILE_NAME)
+
+        assert FILE_NAME not in {os.path.basename(f) for f in _remote_files(job_id)}
+    finally:
+        _cleanup(job_id)
+
+
+def test_a_served_picture_and_download_are_current_when_the_local_copy_was_stale(
+    framework_job,
+):
+    """serve_files fetches through work_dir, so a stale local file never wins."""
+    job_id = "test_persistence_job_served"
+    DbManager.add_entry(_job_row(job_id))
+    _seed_remote(job_id, FILE_NAME, FRESH)
+    _write(job_id, FILE_NAME, STALE)
+    app = dash.Dash(__name__)
+    app.layout = dash.html.Div()
+    serve_files(app)
+    client = app.server.test_client()
+
+    try:
+        picture = client.get(f"/pictures/{job_id}/{FILE_NAME}")
+        _write(job_id, FILE_NAME, STALE)
+        download = client.get(f"/download/{job_id}.zip")
+
+        assert picture.data == FRESH.encode()
+        with zipfile.ZipFile(io.BytesIO(download.data)) as archive:
+            assert archive.read(FILE_NAME) == FRESH.encode()
     finally:
         _cleanup(job_id)
