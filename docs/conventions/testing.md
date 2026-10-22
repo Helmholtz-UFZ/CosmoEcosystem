@@ -58,6 +58,16 @@ these first — they usually explain the failure without needing another run. No
 that `run_pytest.sh` clears previous artifacts by default (use `--keep-artifacts`
 to preserve them across runs).
 
+## Test containers have their own names
+
+`run_pytest.sh` starts its services as compose project `cosmo_ecosystem_test` with
+containers `postgres_cosmo_ecosystem_test`, `object_storage_cosmo_ecosystem_test` and
+`redis_cosmo_ecosystem_test` (names injected by a temporary override file), and its
+cleanup runs `docker compose down -v` on that project only. The dev stack's
+`*_cosmo_ecosystem` containers are never stopped or removed by a test run; before this
+a suite started while `dev_up.sh` was running deleted the dev containers. The host
+ports below still collide with a running dev stack, so stop it first.
+
 ## Local port allocation across the three repos
 
 All three stacks used to publish the same host ports, so **no two suites could run at

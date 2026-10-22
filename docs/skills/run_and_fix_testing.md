@@ -81,9 +81,9 @@ open test/artifacts/<test-dir>/page.html
 
 | Error | Cause | Fix |
 |-------|-------|-----|
-| `PostgreSQL not available` | DB container failed health check | `docker logs postgres_cosmo_ecosystem` |
-| `Object storage did not start` / `Object storage (S3) connectivity check failed` | S3 server unhealthy or unreachable | `docker logs object_storage_cosmo_ecosystem` |
-| `Redis not available` | Redis failed health check | `docker logs redis_cosmo_ecosystem` |
+| `PostgreSQL not available` | DB container failed health check | `docker logs postgres_cosmo_ecosystem_test` |
+| `Object storage did not start` / `Object storage (S3) connectivity check failed` | S3 server unhealthy or unreachable | `docker logs object_storage_cosmo_ecosystem_test` |
+| `Redis not available` | Redis failed health check | `docker logs redis_cosmo_ecosystem_test` |
 | Port already in use | Leftover Docker containers or another process on 5434/9020/6381 | 1. `docker compose down` in the current project first. 2. If persists, tell the user which port is blocked — a sibling project (cosmopolitan, etc.) may be running in parallel and only the user knows which is safe to stop. |
 | Docker not running | Docker daemon not started | `sudo systemctl start docker` |
 
@@ -148,25 +148,25 @@ If tests require services and startup errors occur, verify each service manually
 **PostgreSQL:**
 
 ```bash
-docker ps | grep postgres_cosmo_ecosystem
-docker logs postgres_cosmo_ecosystem
-docker exec postgres_cosmo_ecosystem pg_isready -U cosmo_ecosystem_user
+docker ps | grep postgres_cosmo_ecosystem_test
+docker logs postgres_cosmo_ecosystem_test
+docker exec postgres_cosmo_ecosystem_test pg_isready -U cosmo_ecosystem_user
 ```
 
 **Object storage (RustFS):**
 
 ```bash
-docker ps | grep object_storage_cosmo_ecosystem
-docker logs object_storage_cosmo_ecosystem
+docker ps | grep object_storage_cosmo_ecosystem_test
+docker logs object_storage_cosmo_ecosystem_test
 curl -sf http://localhost:9020/health/ready
 ```
 
 **Redis:**
 
 ```bash
-docker ps | grep redis_cosmo_ecosystem
-docker logs redis_cosmo_ecosystem
-docker exec redis_cosmo_ecosystem redis-cli ping
+docker ps | grep redis_cosmo_ecosystem_test
+docker logs redis_cosmo_ecosystem_test
+docker exec redis_cosmo_ecosystem_test redis-cli ping
 ```
 
 **Clean up and restart:**
