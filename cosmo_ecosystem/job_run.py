@@ -32,7 +32,8 @@ def run(
 
     Any exception ends the run as FAILED, logged with its traceback to the job
     log and the worker log; nothing is raised. A job without a row returns
-    FAILED and writes nothing. A failed upload leaves the row RUNNING.
+    FAILED and writes nothing. A failed upload ends FAILED, so COMPLETED
+    never names files the remote prefix lacks.
 
     Args:
         job_id: The job to run.
