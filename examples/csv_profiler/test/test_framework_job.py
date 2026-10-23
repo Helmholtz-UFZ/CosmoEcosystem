@@ -80,3 +80,27 @@ def test_a_submit_handler_that_fails_leaves_the_job_failed(new_job, monkeypatch)
 
     assert status_seen_by_handler == ["RUNNING"]
     assert load_row(new_job.job_id)["status"] == "FAILED"
+
+
+class _BrokerDown(Exception):
+    """Raised by a submit handler that cannot reach the broker."""
+
+
+def test_a_submit_handler_that_raises_leaves_the_job_failed_and_says_why(
+    new_job, monkeypatch
+):
+    """A broken enqueue does not leave the job RUNNING with no worker behind it.
+
+    The error still reaches the caller, so the global error handler shows it.
+    """
+
+    def raising_handler(job):
+        raise _BrokerDown("redis unreachable")
+
+    monkeypatch.setattr(Job, "submit_handler", staticmethod(raising_handler))
+
+    with pytest.raises(_BrokerDown):
+        new_job.submit()
+
+    assert load_row(new_job.job_id)["status"] == "FAILED"
+    assert f"Cannot start job {new_job.job_id}" in job_log.read(new_job.job_id)

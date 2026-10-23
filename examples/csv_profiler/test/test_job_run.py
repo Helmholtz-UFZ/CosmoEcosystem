@@ -6,10 +6,12 @@ import os
 import shutil
 import time
 
+import pytest
 from sqlalchemy import create_engine
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 
-from cosmo_ecosystem import job_log, job_run, object_storage_manager
+from cosmo_ecosystem import job_log, job_persistence, job_run, object_storage_manager
 from cosmo_ecosystem.config import OBJECT_STORAGE_BUCKET, OBJECT_STORAGE_REMOTE_NAME
 from cosmo_ecosystem.db_manager import DbManager
 from cosmo_ecosystem.job_log import JobLogHandler
@@ -299,3 +301,81 @@ def _dropped(caplog):
         record.name == "cosmo_ecosystem.job_log" and "Dropped" in record.getMessage()
         for record in caplog.records
     )
+
+
+def test_a_job_log_that_cannot_be_cleared_ends_the_run_failed(monkeypatch):
+    """A database hiccup at the very start does not leave the job RUNNING forever."""
+    job_id = "test_job_run_clear_fails"
+    _submit(job_id)
+
+    def clear_fails(job_id):
+        raise OperationalError("DELETE FROM job_logs", {}, Exception("hiccup"))
+
+    monkeypatch.setattr(job_log, "clear", clear_fails)
+
+    try:
+        status = job_run.run(job_id, lambda job_id, work_dir: None)
+
+        assert status == "FAILED"
+        assert load_row(job_id)["status"] == "FAILED"
+        assert _job_log_handlers() == []
+    finally:
+        monkeypatch.undo()
+        _cleanup(job_id)
+
+
+def test_a_run_with_the_database_down_returns_failed_and_tells_the_worker_log(
+    monkeypatch, caplog
+):
+    """With nowhere to record FAILED, the run still ends and says so."""
+    job_id = "test_job_run_database_down"
+    unreachable = create_engine("postgresql+psycopg2://nobody:none@127.0.0.1:1/none")
+    monkeypatch.setattr(DbManager, "_Session", sessionmaker(bind=unreachable))
+
+    with caplog.at_level(logging.ERROR, logger="cosmo_ecosystem.job_run"):
+        status = job_run.run(job_id, lambda job_id, work_dir: None)
+
+    assert status == "FAILED"
+    assert any(
+        record.levelname == "ERROR"
+        and job_id in record.getMessage()
+        and "FAILED" in record.getMessage()
+        for record in caplog.records
+    )
+    assert _job_log_handlers() == []
+
+
+@pytest.mark.parametrize(
+    "compute, final_status, last_record",
+    [
+        (lambda job_id, work_dir: log.info("last words"), "COMPLETED", "last words"),
+        (_failing_compute, "FAILED", "_BrokenComputation: the model diverged"),
+    ],
+)
+def test_whoever_sees_the_final_status_also_sees_the_last_records(
+    monkeypatch, compute, final_status, last_record
+):
+    """A poll that shows the job finished also shows how it ended, traceback included."""
+    job_id = "test_job_run_final_records"
+    _submit(job_id)
+    log_when_final = []
+    update_columns = job_persistence.update_columns
+
+    def update_columns_and_read_the_log(job_id, data):
+        """Write the columns, then read the job log as a poll would right then."""
+        update_columns(job_id, data)
+        if data["status"] == final_status:
+            log_when_final.append(job_log.read(job_id))
+
+    monkeypatch.setattr(
+        job_persistence, "update_columns", update_columns_and_read_the_log
+    )
+
+    try:
+        job_run.run(job_id, compute)
+
+        assert len(log_when_final) == 1
+        assert last_record in log_when_final[0]
+    finally:
+        monkeypatch.undo()
+        _cleanup(job_id)

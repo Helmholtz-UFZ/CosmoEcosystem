@@ -21,8 +21,10 @@ def profile(job_id, work_dir):
     config = Job(job_id=job_id).model
     csv_path = os.path.join(work_dir, config.upload_file_name)
     if not os.path.exists(csv_path):
-        raise FileNotFoundError(f"CSV file not found: {config.upload_file_name}")
-    log.info(f"Processing CSV: {config.upload_file_name}")
+        raise FileNotFoundError(
+            f"CSV file of job {job_id} not found: {config.upload_file_name}"
+        )
+    log.info(f"Job {job_id}: profile CSV {config.upload_file_name}")
 
     result = profile_csv(
         file_path=csv_path,

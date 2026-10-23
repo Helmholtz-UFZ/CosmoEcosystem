@@ -371,11 +371,28 @@ class Job(BaseJob):
         self.working_dir = job_persistence.work_dir(self.job_id)
         job_persistence.save(self.job_id, self._row())
 
-        _celery_task_id, failed = self.submit_handler(self)
+        # A handler that raises is re-raised after FAILED is written, while a
+        # handler that reports failure returns: the flag is a failure the app
+        # foresaw and handled, an exception is not, and must reach the caller
+        # (the global error handler) instead of vanishing behind a FAILED row.
+        try:
+            _celery_task_id, failed = self.submit_handler(self)
+        except Exception:  # noqa: BLE001
+            # Convention exception (CLAUDE.md: specific exceptions only): the
+            # handler is any app's code, and whatever it raises, the RUNNING
+            # written above must not outlive it. Re-raised below.
+            self._fail_to_start()
+            raise
         if failed:
-            log.error(f"Job {self.job_id} failed to start.")
-            self.status = "FAILED"
-            job_persistence.update_columns(self.job_id, {"status": self.status})
+            self._fail_to_start()
+
+    def _fail_to_start(self):
+        """Write FAILED and say so in the job log: the job was never enqueued."""
+        message = f"Cannot start job {self.job_id}."
+        log.error(message)
+        job_log.append(self.job_id, message, level=logging.ERROR)
+        self.status = "FAILED"
+        job_persistence.update_columns(self.job_id, {"status": self.status})
 
     def time_to_live(self):
         """Return the number of days after which this job will be deleted."""

@@ -95,9 +95,22 @@ def start_computation_task(self, job_id):
 - `run` clears the job log, attaches a `JobLogHandler` to the root logger (and
   lowers the root level to DEBUG) for the run, and detaches it in `finally`.
   Every record logged during the run lands in the job log *and* the worker log.
+- `run` flushes the handler before it writes the final status (COMPLETED or
+  FAILED), so a poll that sees the final status also sees the last records,
+  traceback included.
+- `run` saves and restores the root level around the run. That assumes
+  Celery's prefork pool: one job run per process at a time.
 - Read it with `job_log.read(job_id)`, clear it with `job_log.clear(job_id)`.
-- A database error in the handler drops the batch and logs a WARNING to the
-  worker log only; the run goes on.
+- A note from outside a run ("run cancelled by user", "Cannot start job")
+  goes in with `job_log.append(job_id, message, level=logging.INFO)`, written
+  at once. Do not build a short-lived `JobLogHandler` and `makeRecord` for it.
+- A failed write in the handler (database error or any other) drops the batch
+  and logs a WARNING to the worker log only; the run goes on. A log call never
+  waits for the database: a background thread writes the batches, and `close`
+  waits at most `CLOSE_TIMEOUT_SECONDS` for the last one.
+- The handler buffers for up to ~2 s (`FLUSH_INTERVAL_SECONDS`). A run revoked
+  with terminate (SIGTERM, SIGKILL) never closes its handler, so up to ~2 s of
+  records at the end of its job log are lost.
 
 **DO NOT** swap the logging config inside a task (`dictConfig`,
 `get_logger_config_computation`, `flush_all_handlers`). It replaces the
