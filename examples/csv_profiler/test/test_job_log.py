@@ -86,7 +86,6 @@ def _row():
         "input_data": {},
         "submitted": False,
         "notified_end": False,
-        "logs": "",
         "status": "COMPLETED",
         "version": "0.1.0",
     }

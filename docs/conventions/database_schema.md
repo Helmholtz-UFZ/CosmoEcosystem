@@ -65,7 +65,6 @@ class JobTable(JobColumns, Base):
     __tablename__ = "jobs"
 
     input_data = Column(JSON)
-    logs = Column(String)
 ```
 
 and points `DbManager` at it:
@@ -97,7 +96,8 @@ job_id, start_date, submitted, notified_end, status, version
 ```
 
 `input_data` and `logs` are **not** in the intersection: COSMONAUT's `jobs` table
-has neither. The `v0.5.0` cut had included them, measured only against
+has neither. (`logs` is on its way out anyway: the job log lives in `job_logs`,
+see below.) The `v0.5.0` cut had included them, measured only against
 COSMOPOLITAN and csv_profiler, and broke the first time COSMONAUT tried to
 declare a job table against it.
 
@@ -105,7 +105,8 @@ What stays app-side, and why:
 
 | Column | Where | Why it is not in the intersection |
 | --- | --- | --- |
-| `input_data`, `logs` | COSMOPOLITAN, csv_profiler `init.sql` | COSMONAUT's `jobs` table has neither |
+| `input_data` | COSMOPOLITAN, csv_profiler `init.sql` | COSMONAUT's `jobs` table has none |
+| `logs` | COSMOPOLITAN `init.sql`, until its migration drops it | held the log file's text; the job log is in `job_logs` now. csv_profiler dropped it |
 | `prepared_input` | COSMOPOLITAN | app-specific stage tracking |
 | `email` | COSMOPOLITAN `init.sql` | in the DDL only; never read or written, no ORM mapping |
 | `celery_task_id` | COSMOPOLITAN `init.sql` | in the DDL only; the app's `celery_task_id` is an in-memory attribute with no ORM mapping, and there is no raw SQL against `jobs` |
@@ -129,24 +130,30 @@ ships before the framework tag that maps it. The reverse order breaks whichever
 app deploys last.
 
 App-specific columns never go on `JobColumns`. An app maps them on its own
-concrete class, same as `input_data` and `logs` above.
+concrete class, same as `input_data` above.
 
 ---
 
 ## The framework `Job`'s extra-column contract
 
 `JobColumns` fixes the six columns every app has. The concrete
-`cosmo_ecosystem.job.Job` needs two more and reads and writes them on every load
+`cosmo_ecosystem.job.Job` needs one more and reads and writes it on every load
 and save:
 
 | Column | Holds |
 | --- | --- |
 | `input_data` | the config model as a JSON string (`model_dump_json`) |
-| `logs` | the job log text |
 
-An app that uses `Job` declares both on its table, as in the `JobTable` example
-above, and in its own `init.sql`. An app with its own job class (COSMONAUT) needs
-neither.
+An app that uses `Job` declares it on its table, as in the `JobTable` example
+above, and in its own `init.sql`. An app with its own job class (COSMONAUT) does
+not need it.
+
+`logs` was required too, to carry the text of the job's log file. Since the job
+log moved into `job_logs` it is neither required, read nor written: a table that
+still has the column keeps working (`job.LEGACY_LOGS_COLUMN` is skipped on load
+and save), and the app drops it once no older version runs against the table.
+`Job.reload_logs` reads `job_log.read`; `Job.delete_logs` and `Job.reset` clear
+the job log.
 
 `Job.__init__` checks `DbManager.job_table` and raises `RuntimeError` naming the
 missing column, the same fail-loud pattern as `Job.config_model is None`. Without
@@ -160,8 +167,42 @@ job's files calls `job_persistence.work_dir(job_id)` first; see
 
 ---
 
-## `LogTable`
+## Tables the framework declares, and every app creates
+
+The framework maps two tables of its own on `Base`. Unlike `jobs`, they are not
+an intersection — they are the schema, and every app's `init.sql` must create
+them exactly so. A missing one fails at runtime, on the first write.
+
+### `LogTable` (`logs`)
 
 `LogTable` is the one table that lifted cleanly: identical in all three code
 bases, owned by the framework, written by `logger.PostgreSQLHandler` and read by
-the logs page. It is not an intersection — it is the schema.
+the logs page. Rows older than `LOG_RETENTION_DAYS` (60) are purged by the
+maintenance task.
+
+### `JobLogTable` (`job_logs`)
+
+The job log: one row per record of a job's latest job run, written by
+`job_log.JobLogHandler` during `job_run.run`, read by `job_log.read` and cleared
+by `job_log.clear` (at the start of every run, on `Job.reset` /
+`Job.delete_logs`, and by `job_persistence.delete_job`). It is separate from
+`logs` so the 60-day purge does not cut a job log short and worker noise stays
+out.
+
+```sql
+CREATE TABLE IF NOT EXISTS job_logs (
+    id BIGSERIAL PRIMARY KEY,
+    job_id VARCHAR NOT NULL,
+    timestamp TIMESTAMP NOT NULL,
+    level VARCHAR(10) NOT NULL,
+    module VARCHAR NOT NULL,
+    message TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS job_logs_job_id_idx ON job_logs (job_id);
+```
+
+`module` is an unbounded `VARCHAR` on purpose (`logs` has `VARCHAR(50)`): the
+handler writes a batch in one insert, and one long module name must not fail
+the whole batch. There is no foreign key to `jobs`: COSMONAUT's job table is its
+own, and a job log is cleared explicitly with the job.

@@ -9,6 +9,7 @@ to extend it.
 import datetime
 import logging
 import time
+import warnings
 
 import psycopg2
 from psycopg2 import pool
@@ -209,10 +210,22 @@ def _filter_config(excluded_packages):
 def get_logger_config_computation(log_file_path, excluded_packages=()):
     """Get the config dic for the computation logger.
 
+    Deprecated: a job's log lives in the ``job_logs`` table now, and
+    ``job_run.run`` captures it. Swapping the logging config inside a task
+    replaces the worker's handlers, the ``JobLogHandler`` among them. Will be
+    removed in the next version.
+
     Args:
         log_file_path: Path of the job's log file.
         excluded_packages: Extra packages to mute — see ExcludeSubmodulesFilter.
     """
+    warnings.warn(
+        "get_logger_config_computation() is deprecated and will be removed: "
+        "a computation task calls cosmo_ecosystem.job_run.run, which writes "
+        "the job log to the job_logs table.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     return {
         "version": 1,
         "disable_existing_loggers": False,

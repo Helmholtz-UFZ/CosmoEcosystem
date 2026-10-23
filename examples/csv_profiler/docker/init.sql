@@ -14,7 +14,6 @@ CREATE TABLE jobs (
     input_data JSONB,
     submitted BOOL,
     notified_end BOOL,
-    logs VARCHAR,
     status VARCHAR,
     version VARCHAR
 );

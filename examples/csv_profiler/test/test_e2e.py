@@ -28,6 +28,7 @@ from csv_profiler.constants import (
     CHECK_INPUT_BUTTON_INPUT_ID,
     CSV_UPLOAD_INPUT_ID,
     JOB_INPUT_HOME_ID,
+    JOB_LOGS_DIV_JOB_SUBMISSION_ID,
     START_BUTTON_HOME_ID,
     STATUS_DIV_JOB_SUBMISSION_ID,
     SUBMIT_BUTTON_JOB_SUBMISSION_ID,
@@ -139,8 +140,12 @@ def test_full_csv_profiling_flow(page, dash_app, celery_worker):
     else:
         pytest.fail(f"Job did not complete within {max_wait}s")
 
-    # 10. Verify accordion shows logs
+    # 10. Verify accordion shows the job log, read from the database: the
+    # worker writes no log file the web process could read
     expect(page.locator(f"#{ACCORDION_JOB_SUBMISSION_ID}")).to_be_visible(timeout=5000)
+    expect(page.locator(f"#{JOB_LOGS_DIV_JOB_SUBMISSION_ID}")).to_contain_text(
+        "saved to result.json", timeout=5000
+    )
 
     # 11. Click "View Results" → arrives at /results/<job_id>
     results_btn = page.locator(f"#{VIEW_RESULTS_BUTTON_JOB_SUBMISSION_ID}")

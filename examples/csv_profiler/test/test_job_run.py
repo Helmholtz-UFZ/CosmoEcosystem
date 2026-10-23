@@ -49,7 +49,6 @@ def _submit(job_id, input_data=None):
             "input_data": input_data,
             "submitted": True,
             "notified_end": False,
-            "logs": "",
             "status": "PENDING",
             "version": "0.1.0",
         }

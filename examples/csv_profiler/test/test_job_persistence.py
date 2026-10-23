@@ -74,7 +74,6 @@ def _row(job_id, **overrides):
         "input_data": {},
         "submitted": False,
         "notified_end": False,
-        "logs": "",
         "status": "PENDING",
         "version": "0.1.0",
     }
