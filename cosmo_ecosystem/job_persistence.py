@@ -86,6 +86,23 @@ def pull_file(job_id: str, path: str) -> str:
     return os.path.join(local_dir(job_id), path)
 
 
+def upload_work_dir(job_id: str) -> None:
+    """Upload the job's work dir to its remote prefix; write no row.
+
+    ``rclone copy --checksum``: new and changed files go up, remote files the
+    work dir lacks stay (ADR 0001). Afterwards every local file must be in the
+    remote prefix. For a caller that writes the row itself, after the upload,
+    such as a job run writing its final status.
+
+    Raises:
+        ObjectStorageError: If the upload fails or a local file is missing
+            remotely afterwards.
+    """
+    # A pod that never held the files has no dir; uploading it is a no-op.
+    os.makedirs(local_dir(job_id), exist_ok=True)
+    upload_files(job_id)
+
+
 def save(job_id: str, row: dict) -> None:
     """Upload the job's work dir, then write the row (insert or update).
 
@@ -95,9 +112,7 @@ def save(job_id: str, row: dict) -> None:
     Raises:
         ObjectStorageError: If the upload fails; no row is written then.
     """
-    # A pod that never held the files has no dir; uploading it is a no-op.
-    os.makedirs(local_dir(job_id), exist_ok=True)
-    upload_files(job_id)
+    upload_work_dir(job_id)
     DbManager.add_entry({**row, "job_id": job_id})
 
 

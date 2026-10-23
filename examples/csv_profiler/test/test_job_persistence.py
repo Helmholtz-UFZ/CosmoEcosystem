@@ -30,6 +30,7 @@ from cosmo_ecosystem.job_persistence import (
     pull_file,
     save,
     update_columns,
+    upload_work_dir,
     work_dir,
 )
 from cosmo_ecosystem.object_storage_manager import (
@@ -263,6 +264,53 @@ def test_saving_writes_no_row_when_the_upload_fails(monkeypatch):
         assert not DbManager.check_existence(job_id)
     finally:
         # Restore the real remote first, so the cleanup reaches the job's prefix.
+        monkeypatch.undo()
+        _cleanup(job_id)
+
+
+def test_uploading_the_work_dir_leaves_the_job_row_untouched():
+    """A job run uploads its results without a row; the row stays as it was."""
+    job_id = "test_persistence_upload_row_untouched"
+    DbManager.add_entry(_row(job_id, status="RUNNING", version="9.9.9"))
+    row_before = load_row(job_id)
+    _write(job_id, FILE_NAME, FRESH)
+
+    try:
+        upload_work_dir(job_id)
+
+        assert _remote_files(job_id) == {FILE_NAME}
+        assert load_row(job_id) == row_before
+    finally:
+        _cleanup(job_id)
+
+
+def test_uploading_the_work_dir_keeps_a_remote_file_the_work_dir_lacks():
+    """Like save, the upload deletes nothing remote (ADR 0001)."""
+    job_id = "test_persistence_upload_keeps_remote"
+    _seed_remote(job_id, "worker_result.csv", FRESH)
+    _write(job_id, FILE_NAME, FRESH)
+
+    try:
+        upload_work_dir(job_id)
+
+        assert _remote_files(job_id) == {FILE_NAME, "worker_result.csv"}
+    finally:
+        _cleanup(job_id)
+
+
+def test_uploading_the_work_dir_raises_when_the_upload_fails(monkeypatch):
+    """A failed upload is loud, so a caller never writes a row after it."""
+    job_id = "test_persistence_upload_fails"
+    _write(job_id, FILE_NAME, FRESH)
+    # An unknown remote, as in the save case: rclone creates a missing bucket.
+    monkeypatch.setattr(
+        object_storage_manager, "OBJECT_STORAGE_REMOTE_NAME", "no-such-remote"
+    )
+
+    try:
+        with pytest.raises(ObjectStorageError):
+            upload_work_dir(job_id)
+    finally:
         monkeypatch.undo()
         _cleanup(job_id)
 
