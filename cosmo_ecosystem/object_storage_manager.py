@@ -358,6 +358,10 @@ def get_files(
     remote_path = f"{OBJECT_STORAGE_REMOTE_NAME}:{OBJECT_STORAGE_BUCKET}/{dirname}"
 
     local_files_before = get_local_files(local_path)
+    # Listed before the copy, not after, because another process (a worker's
+    # upload) may add files to the prefix between the copy and the verification;
+    # those were never part of this download and are not missing.
+    remote_files_before = get_remote_files(remote_path)
     # Download: copy files from remote to local without deleting local files.
     # The default is the loss-free direction: a stale remote copy must not
     # clobber local edits that have not been uploaded yet (measured in
@@ -375,23 +379,21 @@ def get_files(
     result = run_rclone_with_retry(sync_params, timeout=timeout, check_connection=True)
     log.debug(f"Rclone sync result: {result.stdout}")
 
-    # Verify download - check that all remote files are now in local
-    # (local may have additional files, which is acceptable with copy)
+    # Verify download - check that all remote files listed before the copy are
+    # now local (local may have additional files, which is acceptable with copy)
     local_files_after = get_local_files(local_path)
-    remote_files = get_remote_files(remote_path)
 
     log.debug(
         f"Downloaded {len(local_files_after - local_files_before)} new files to local",
     )
 
-    # Check that all remote files are present locally
-    if not remote_files.issubset(local_files_after):
-        missing_files = remote_files - local_files_after
+    if not remote_files_before.issubset(local_files_after):
+        missing_files = remote_files_before - local_files_after
         error_msg = (
             f"Download verification failed for {dirname}!\n"
             f"Missing files from remote: {sorted(missing_files)}\n"
             f"Files from local: {sorted(local_files_after)}\n"
-            f"Files from remote: {sorted(remote_files)}"
+            f"Files from remote: {sorted(remote_files_before)}"
         )
         log.error(error_msg)
         raise ObjectStorageError(error_msg)

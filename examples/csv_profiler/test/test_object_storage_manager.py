@@ -5,6 +5,7 @@ import shutil
 import urllib.request
 from datetime import timedelta
 
+from cosmo_ecosystem import object_storage_manager
 from cosmo_ecosystem.config import (
     JOB_WORK_DIR_TEMPLATE,
     OBJECT_STORAGE_BUCKET,
@@ -28,6 +29,9 @@ DELETE_JOB_ID = "test_delete_existing_prefix"
 OVERWRITE_JOB_ID = "test_get_files_overwrite"
 REMOTE_CONTENT = "col_a\nremote\n"
 LOCAL_CONTENT = "col_a\nlocal\n"
+
+RACE_JOB_ID = "test_get_files_concurrent_upload"
+LATE_FILE_NAME = "late_upload.csv"
 
 
 def _write(work_dir, content):
@@ -104,6 +108,55 @@ def test_get_files_keeps_local_edits_unless_overwrite_is_asked_for():
 
     assert after_default == LOCAL_CONTENT
     assert after_overwrite == REMOTE_CONTENT
+
+
+def test_get_files_ignores_files_uploaded_during_the_download(monkeypatch, tmp_path):
+    """A file another process uploads mid-download is not a missing file.
+
+    Seen in COSMONAUT's e2e: a web ``work_dir()`` pull ran while the worker's
+    upload task was writing to the same prefix, and the files that arrived
+    between the copy and the verification were reported missing locally.
+    The upload is injected right after the copy so the race is deterministic.
+    """
+    work_dir = JOB_WORK_DIR_TEMPLATE.format(job_id=RACE_JOB_ID)
+    remote_prefix = (
+        f"{OBJECT_STORAGE_REMOTE_NAME}:{OBJECT_STORAGE_BUCKET}/{RACE_JOB_ID}"
+    )
+    os.makedirs(work_dir, exist_ok=True)
+    _write(work_dir, CONTENT)
+    save_files(RACE_JOB_ID)
+    shutil.rmtree(work_dir)
+
+    late_file = tmp_path / LATE_FILE_NAME
+    late_file.write_text(CONTENT, encoding="UTF-8")
+    real_run = object_storage_manager.run_rclone_with_retry
+
+    def run_then_upload_concurrently(params, **kwargs):
+        result = real_run(params, **kwargs)
+        if params[1:3] == ["copy", remote_prefix]:
+            real_run(
+                [
+                    "rclone",
+                    "copyto",
+                    str(late_file),
+                    f"{remote_prefix}/{LATE_FILE_NAME}",
+                ]
+            )
+        return result
+
+    monkeypatch.setattr(
+        object_storage_manager, "run_rclone_with_retry", run_then_upload_concurrently
+    )
+
+    try:
+        get_files(RACE_JOB_ID)
+        downloaded = _read(work_dir)
+    finally:
+        monkeypatch.undo()
+        delete_directory_from_storage(RACE_JOB_ID)
+        shutil.rmtree(work_dir, ignore_errors=True)
+
+    assert downloaded == CONTENT
 
 
 def test_deleting_a_prefix_that_does_not_exist_succeeds():
