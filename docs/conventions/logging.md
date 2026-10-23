@@ -75,8 +75,33 @@ log.error(f"Error processing job: {str(e)}", exc_info=True)
 
 Configuration is in `src/logger.py`:
 - Web/worker: Console + PostgreSQL database logging
-- Computation tasks: File-based logging in job output directory
+- Computation tasks: the worker config, plus the job log (below)
 - Third-party package filtering to reduce noise
+
+---
+
+## Job Log
+
+A job's log lives in the `job_logs` table (`cosmo_ecosystem.job_log`), not in a
+file in the work dir, so any pod can read it while the run is still going.
+
+A computation task calls `job_run.run`; that call owns the job log:
+
+```python
+def start_computation_task(self, job_id):
+    return job_run.run(job_id, compute, excluded_packages=EXCLUDED_LOG_PACKAGES)
+```
+
+- `run` clears the job log, attaches a `JobLogHandler` to the root logger (and
+  lowers the root level to DEBUG) for the run, and detaches it in `finally`.
+  Every record logged during the run lands in the job log *and* the worker log.
+- Read it with `job_log.read(job_id)`, clear it with `job_log.clear(job_id)`.
+- A database error in the handler drops the batch and logs a WARNING to the
+  worker log only; the run goes on.
+
+**DO NOT** swap the logging config inside a task (`dictConfig`,
+`get_logger_config_computation`, `flush_all_handlers`). It replaces the
+worker's handlers, and with them the `JobLogHandler`.
 
 ---
 

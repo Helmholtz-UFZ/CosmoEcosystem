@@ -33,7 +33,8 @@ class JobLogHandler(logging.Handler):
     ``FLUSH_INTERVAL_SECONDS`` or every ``BATCH_SIZE`` records, and always on
     ``flush`` and ``close``. A background thread does the timed writes, so a
     computation that logs nothing for a while still has its earlier records
-    readable. Level DEBUG, behind ``ExcludeSubmodulesFilter``.
+    readable. Level DEBUG, behind ``ExcludeSubmodulesFilter``, which also keeps
+    this module's own records out.
     """
 
     def __init__(self, job_id: str, excluded_packages=()):
@@ -46,9 +47,12 @@ class JobLogHandler(logging.Handler):
         """
         super().__init__(level=logging.DEBUG)
         self.job_id = job_id
-        self.addFilter(ExcludeSubmodulesFilter(excluded_packages))
+        # This module's own records, above all the WARNING about a dropped batch,
+        # stay out: buffered, they would fail again with every batch of an outage.
+        self.addFilter(ExcludeSubmodulesFilter((*excluded_packages, __name__)))
         self._buffer = []
-        self._closed = threading.Event()
+        # Not `_closed`: logging.Handler.close sets that attribute to True.
+        self._stopped = threading.Event()
         self._flusher = threading.Thread(
             target=self._flush_periodically,
             name=f"job-log-{job_id}",
@@ -91,14 +95,14 @@ class JobLogHandler(logging.Handler):
 
     def close(self):
         """Stop the timed writes, write what is left and close the handler."""
-        self._closed.set()
+        self._stopped.set()
         self._flusher.join()
         self.flush()
         super().close()
 
     def _flush_periodically(self):
         """Write the buffer every FLUSH_INTERVAL_SECONDS until closed."""
-        while not self._closed.wait(FLUSH_INTERVAL_SECONDS):
+        while not self._stopped.wait(FLUSH_INTERVAL_SECONDS):
             self.flush()
 
 

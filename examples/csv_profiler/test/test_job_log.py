@@ -179,3 +179,15 @@ def test_an_unreachable_database_raises_nothing_and_warns_in_the_worker_log(
         for record in caplog.records
         if "test_job_log_unreachable" in record.getMessage()
     ] == ["WARNING"]
+
+
+def test_closing_a_handler_twice_raises_nothing():
+    """logging.shutdown closes every live handler again at interpreter exit."""
+    job_id = "test_job_log_close_twice"
+    handler = JobLogHandler(job_id)
+
+    try:
+        handler.close()
+        handler.close()
+    finally:
+        job_log.clear(job_id)
