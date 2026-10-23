@@ -5,9 +5,8 @@ files pulls what changed and never deletes locally, saving uploads without
 deleting remotely. The module is column-agnostic: it reads and writes whatever
 columns a dict carries, against ``DbManager.job_table``.
 
-Live logs during a run are not persisted here: polls read the log file from
-local disk, which works only while web and worker share a work dir. Moving job
-logs to the database is a later step.
+A job's job log lives in the database (``cosmo_ecosystem.job_log``);
+deleting a job deletes it too.
 """
 
 import logging
@@ -16,6 +15,7 @@ import shutil
 
 from sqlalchemy.exc import SQLAlchemyError
 
+from cosmo_ecosystem import job_log
 from cosmo_ecosystem.config import JOB_WORK_DIR_TEMPLATE
 from cosmo_ecosystem.db_manager import DbManager
 from cosmo_ecosystem.error_handling import JobDeletionFailed, JobNotFound
@@ -142,7 +142,7 @@ def delete_files(job_id: str, paths: list[str]) -> None:
 
 
 def delete_job(job_id: str) -> None:
-    """Delete a job everywhere: its remote prefix, local work dir and row.
+    """Delete a job everywhere: its remote prefix, local work dir, job log and row.
 
     Works from any pod, and whatever part is already gone counts as deleted.
     The row goes last because it is the retry handle: if a storage step
@@ -159,6 +159,7 @@ def delete_job(job_id: str) -> None:
         shutil.rmtree(local_dir(job_id))
     except FileNotFoundError:
         log.debug(f"Job {job_id} has no local work dir on this pod.")
+    job_log.clear(job_id)
     try:
         DbManager.delete_job(job_id)
     except JobNotFound:
