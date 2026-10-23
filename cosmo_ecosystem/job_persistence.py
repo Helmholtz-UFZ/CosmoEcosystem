@@ -5,9 +5,8 @@ files pulls what changed and never deletes locally, saving uploads without
 deleting remotely. The module is column-agnostic: it reads and writes whatever
 columns a dict carries, against ``DbManager.job_table``.
 
-Live logs during a run are not persisted here: polls read the log file from
-local disk, which works only while web and worker share a work dir. Moving job
-logs to the database is a later step.
+A job's job log lives in the database (``cosmo_ecosystem.job_log``);
+deleting a job deletes it too.
 """
 
 import logging
@@ -16,6 +15,7 @@ import shutil
 
 from sqlalchemy.exc import SQLAlchemyError
 
+from cosmo_ecosystem import job_log
 from cosmo_ecosystem.config import JOB_WORK_DIR_TEMPLATE
 from cosmo_ecosystem.db_manager import DbManager
 from cosmo_ecosystem.error_handling import JobDeletionFailed, JobNotFound
@@ -86,6 +86,23 @@ def pull_file(job_id: str, path: str) -> str:
     return os.path.join(local_dir(job_id), path)
 
 
+def upload_work_dir(job_id: str) -> None:
+    """Upload the job's work dir to its remote prefix; write no row.
+
+    ``rclone copy --checksum``: new and changed files go up, remote files the
+    work dir lacks stay (ADR 0001). Afterwards every local file must be in the
+    remote prefix. For a caller that writes the row itself, after the upload,
+    such as a job run writing its final status.
+
+    Raises:
+        ObjectStorageError: If the upload fails or a local file is missing
+            remotely afterwards.
+    """
+    # A pod that never held the files has no dir; uploading it is a no-op.
+    os.makedirs(local_dir(job_id), exist_ok=True)
+    upload_files(job_id)
+
+
 def save(job_id: str, row: dict) -> None:
     """Upload the job's work dir, then write the row (insert or update).
 
@@ -95,9 +112,7 @@ def save(job_id: str, row: dict) -> None:
     Raises:
         ObjectStorageError: If the upload fails; no row is written then.
     """
-    # A pod that never held the files has no dir; uploading it is a no-op.
-    os.makedirs(local_dir(job_id), exist_ok=True)
-    upload_files(job_id)
+    upload_work_dir(job_id)
     DbManager.add_entry({**row, "job_id": job_id})
 
 
@@ -127,7 +142,7 @@ def delete_files(job_id: str, paths: list[str]) -> None:
 
 
 def delete_job(job_id: str) -> None:
-    """Delete a job everywhere: its remote prefix, local work dir and row.
+    """Delete a job everywhere: its remote prefix, local work dir, job log and row.
 
     Works from any pod, and whatever part is already gone counts as deleted.
     The row goes last because it is the retry handle: if a storage step
@@ -144,6 +159,7 @@ def delete_job(job_id: str) -> None:
         shutil.rmtree(local_dir(job_id))
     except FileNotFoundError:
         log.debug(f"Job {job_id} has no local work dir on this pod.")
+    job_log.clear(job_id)
     try:
         DbManager.delete_job(job_id)
     except JobNotFound:

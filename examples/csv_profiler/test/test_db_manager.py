@@ -15,7 +15,6 @@ def test_add_and_check_existence():
         "input_data": {"param1": 10, "param2": "value"},
         "submitted": True,
         "notified_end": False,
-        "logs": "Some log information",
         "status": "completed",
         "version": "1.0.0",
     }
@@ -33,7 +32,6 @@ def test_get_job_columns():
         "input_data": {"key": "val"},
         "submitted": False,
         "notified_end": False,
-        "logs": "",
         "status": "PENDING",
         "version": "0.1.0",
     }
@@ -53,7 +51,6 @@ def test_update_column():
         "input_data": {},
         "submitted": False,
         "notified_end": False,
-        "logs": "",
         "status": "PENDING",
         "version": "0.1.0",
     }
@@ -73,7 +70,6 @@ def test_delete_job():
         "input_data": {},
         "submitted": False,
         "notified_end": False,
-        "logs": "",
         "status": "PENDING",
         "version": "0.1.0",
     }
@@ -94,7 +90,6 @@ def test_list_jobs():
             "input_data": {},
             "submitted": False,
             "notified_end": False,
-            "logs": "",
             "status": "PENDING",
             "version": "0.1.0",
         }

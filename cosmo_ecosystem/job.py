@@ -26,7 +26,7 @@ from cosmo_ecosystem.error_handling import (
     JobExists,
     JobNotFound,
 )
-from cosmo_ecosystem import job_persistence
+from cosmo_ecosystem import job_log, job_persistence
 from cosmo_ecosystem.job_retention import days_to_live
 from cosmo_ecosystem.pydantic_models import UploadJobConfig, validate_job_id
 
@@ -46,7 +46,12 @@ SEED = os.urandom(128)
 
 # Columns the framework Job reads and writes beyond `JobColumns` (see "The
 # extra-column contract" in docs/conventions/database_schema.md).
-REQUIRED_EXTRA_COLUMNS = ("input_data", "logs")
+REQUIRED_EXTRA_COLUMNS = ("input_data",)
+
+# The job table column that held the log file's text before the job log moved
+# into the `job_logs` table. A table that still has it keeps working: the Job
+# neither reads nor writes it, and the app drops it after its migration.
+LEGACY_LOGS_COLUMN = "logs"
 
 
 def find_unique_job_id() -> str:
@@ -84,6 +89,7 @@ class Job(BaseJob):
     start_date: date
     submitted: bool
     notified_end: bool
+    # The job log as last read by `reload_logs`; not a column.
     logs: str
     status: Literal["PENDING", "RUNNING", "COMPLETED", "FAILED"]
     version: str
@@ -179,6 +185,8 @@ class Job(BaseJob):
         log.debug(f"Job id: {self.job_id} is valid")
 
         for name, value in job_persistence.load_row(self.job_id).items():
+            if name == LEGACY_LOGS_COLUMN:
+                continue
             log.debug((f"Load column {name}"))
             if name == "input_data":
                 self.model = self.config_model(**json.loads(value))
@@ -186,6 +194,8 @@ class Job(BaseJob):
 
         log.debug(f"Job {self.job_id} loaded from database")
 
+        # Read on demand by `reload_logs`: a load does not query the job log.
+        self.logs = ""
         self.working_dir = job_persistence.local_dir(self.job_id)
 
     def _init_from_model(self, model):
@@ -285,15 +295,6 @@ class Job(BaseJob):
         return safe_name
 
     def _get_column_data(self, name):
-        if name == "logs":
-            log_file = os.path.join(self.working_dir, LOG_FILE_NAME)
-            try:
-                with open(log_file, "r") as f_handle:
-                    content = f_handle.read()
-                    return content.replace("\x00", "")
-            except FileNotFoundError:
-                return ""
-
         if name == "input_data":
             return self.model.model_dump_json(
                 indent=4,
@@ -305,8 +306,8 @@ class Job(BaseJob):
         return getattr(self, name)
 
     def reload_logs(self):
-        """Reload the logs from the log file."""
-        self.logs = self._get_column_data("logs")
+        """Read the job log into ``logs``; any pod sees a running job's records."""
+        self.logs = job_log.read(self.job_id)
 
     def save_attributes(self, attribute_list):
         """Save specific job information to the database."""
@@ -322,7 +323,11 @@ class Job(BaseJob):
     def _row(self):
         """Return the job's full row as a dict, validating its input_data."""
         column_names = DbManager._job_table().__table__.columns.keys()
-        row = {name: self._get_column_data(name) for name in column_names}
+        row = {
+            name: self._get_column_data(name)
+            for name in column_names
+            if name != LEGACY_LOGS_COLUMN
+        }
         self.config_model(**json.loads(row["input_data"]))
         return row
 
@@ -357,20 +362,36 @@ class Job(BaseJob):
                 "at startup before submitting a Job."
             )
 
-        # Save BEFORE enqueuing: pull first so the dir exists and holds nothing
-        # stale, then upload and write the submitted row. Nothing is synced
-        # after the enqueue, because a worker on a shared disk may already be
-        # writing files; only the status is written then.
+        # Save BEFORE enqueuing, RUNNING included: pull first so the dir exists
+        # and holds nothing stale, then upload and write the submitted row. A
+        # fast worker may write COMPLETED or FAILED before the handler returns,
+        # and a RUNNING written after the enqueue would overwrite it (ADR 0002).
+        # Nothing is synced after the enqueue; only a failure is written then.
+        self.status = "RUNNING"
         self.working_dir = job_persistence.work_dir(self.job_id)
         job_persistence.save(self.job_id, self._row())
 
-        _celery_task_id, failed = self.submit_handler(self)
+        # A handler that raises is re-raised after FAILED is written, while a
+        # handler that reports failure returns: the flag is a failure the app
+        # foresaw and handled, an exception is not, and must reach the caller
+        # (the global error handler) instead of vanishing behind a FAILED row.
+        try:
+            _celery_task_id, failed = self.submit_handler(self)
+        except Exception:  # noqa: BLE001
+            # Convention exception (CLAUDE.md: specific exceptions only): the
+            # handler is any app's code, and whatever it raises, the RUNNING
+            # written above must not outlive it. Re-raised below.
+            self._fail_to_start()
+            raise
         if failed:
-            log.error(f"Job {self.job_id} failed to start.")
-            self.status = "FAILED"
-        else:
-            self.status = "RUNNING"
+            self._fail_to_start()
 
+    def _fail_to_start(self):
+        """Write FAILED and say so in the job log: the job was never enqueued."""
+        message = f"Cannot start job {self.job_id}."
+        log.error(message)
+        job_log.append(self.job_id, message, level=logging.ERROR)
+        self.status = "FAILED"
         job_persistence.update_columns(self.job_id, {"status": self.status})
 
     def time_to_live(self):
@@ -424,6 +445,11 @@ class Job(BaseJob):
         self.save()
 
     def delete_logs(self):
-        """Delete the logs."""
+        """Clear the job log."""
         log.info(f"Delete logs of job {self.job_id}")
+        job_log.clear(self.job_id)
+        self.logs = ""
+        # A work dir from before the job log moved into the database may still
+        # hold the old log file. Removing it stays for one version, and with it
+        # LOG_FILE_NAME.
         self.delete_item(LOG_FILE_NAME)

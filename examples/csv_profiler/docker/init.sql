@@ -14,7 +14,6 @@ CREATE TABLE jobs (
     input_data JSONB,
     submitted BOOL,
     notified_end BOOL,
-    logs VARCHAR,
     status VARCHAR,
     version VARCHAR
 );
@@ -32,3 +31,16 @@ CREATE TABLE IF NOT EXISTS logs (
 
 -- Create indexes to improve query performance
 CREATE INDEX IF NOT EXISTS logs_timestamp_idx ON logs (timestamp);
+
+-- Job logs: one row per record of a job's latest job run (cosmo_ecosystem.job_log)
+DROP TABLE IF EXISTS job_logs;
+CREATE TABLE IF NOT EXISTS job_logs (
+    id BIGSERIAL PRIMARY KEY,
+    job_id VARCHAR NOT NULL,
+    timestamp TIMESTAMP NOT NULL,
+    level VARCHAR(10) NOT NULL,
+    module VARCHAR NOT NULL,
+    message TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS job_logs_job_id_idx ON job_logs (job_id);

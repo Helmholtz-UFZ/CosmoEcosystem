@@ -6,7 +6,7 @@ supplies the intersection columns via ``JobColumns`` and the machinery via
 ``Base``. See docs/conventions/database_schema.md.
 """
 
-from sqlalchemy import JSON, Column, String
+from sqlalchemy import JSON, Column
 
 from cosmo_ecosystem.db_manager import Base, JobColumns
 
@@ -14,12 +14,12 @@ from cosmo_ecosystem.db_manager import Base, JobColumns
 class JobTable(JobColumns, Base):
     """Concrete ``jobs`` table for the CSV profiler.
 
-    ``input_data`` and ``logs`` are not in the framework's intersection
-    (cosmonaut has neither), so they are mapped here alongside the six
-    columns inherited from ``JobColumns``.
+    ``input_data`` is not in the framework's intersection (cosmonaut has no
+    such column), so it is mapped here alongside the six columns inherited
+    from ``JobColumns``. The job log lives in the framework's ``job_logs``
+    table, not in a column.
     """
 
     __tablename__ = "jobs"
 
     input_data = Column(JSON)
-    logs = Column(String)

@@ -6,6 +6,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     Column,
     Date,
@@ -421,6 +422,24 @@ class LogTable(Base):
             "message": self.message,
             "module": self.module,
         }
+
+
+class JobLogTable(Base):
+    """SQLAlchemy model for the job_logs table: one row per job log record.
+
+    Separate from ``logs`` so the log purge does not cut a job log short and
+    worker noise stays out. Written by ``job_log.JobLogHandler``, read and
+    cleared through ``job_log``. ``id`` orders the records of one job.
+    """
+
+    __tablename__ = "job_logs"
+
+    id = Column(BigInteger, primary_key=True)
+    job_id = Column(String, nullable=False, index=True)
+    timestamp = Column(DateTime(timezone=False), nullable=False)
+    level = Column(String(10), nullable=False)
+    module = Column(String, nullable=False)
+    message = Column(Text, nullable=False)
 
 
 if __name__ == "__main__":

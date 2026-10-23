@@ -163,6 +163,7 @@ def load_submission_content(job_id):
     except (InvalidJobID, JobNotFound) as e:
         log.info(f"Job not accessible {job_id}: {e}")
         return job_not_found_layout(job_id)
+    job.reload_logs()
 
     # Read-only form showing configured parameters
     read_only_factory = FormFactory(job.model, form_layout_template, active=False)

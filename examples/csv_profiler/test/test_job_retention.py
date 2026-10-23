@@ -45,7 +45,6 @@ def _seed_row(job_id, *, days_old=0, submitted=False):
             "input_data": {},
             "submitted": submitted,
             "notified_end": False,
-            "logs": "",
             "status": "PENDING",
             "version": "0.1.0",
         }
