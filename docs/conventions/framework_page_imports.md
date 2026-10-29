@@ -27,7 +27,6 @@ no failing test, and a symptom that surfaces somewhere else entirely.**
 | `pages.job_management` | `cosmo_ecosystem.job_retention`, `cosmo_ecosystem.job_persistence`, `cosmo_ecosystem.db_manager` (not `cosmo_ecosystem.job`: it cleans through `job_retention` and deletes through `job_persistence`) | its own page + three callbacks |
 | `pages.worker_management` | `cosmo_ecosystem.background_job_manager` | its own page + eleven callbacks, one of them clientside |
 | `layouts.app_layout()` | — | the navbar-collapse callback on `NAVBAR_TOGGLER_BUTTON_SHARED_ID` / `NAVBAR_COLLAPSE_DIV_SHARED_ID` — it mounts that navbar |
-| `layouts.app_layout(with_reset=True)` | — | the above **plus** the two job-reset callbacks |
 | `layouts.register_navbar_callbacks()` | — | the navbar-collapse callback, for an app that mounts the shared id in a navbar of its own |
 
 Two consequences follow from "at import time":
@@ -122,7 +121,7 @@ Which registration goes where follows from whether the component is optional:
 | | mounted by | registration |
 | --- | --- | --- |
 | navbar | `app_layout()`, always | called by `app_layout()`. There is no call in which the callback is unwanted. |
-| reset modal | `app_layout(with_reset=True)`, on request | called only when opted in. Registering it unasked would put a feature into a consumer's process that it never wanted. |
+| reset modal (example only, since v0.13.0) | the app, appending `job_reset_components()` to its shell | called by that same function. The framework ships no reset: it was bound to the concrete `Job`, and an app that has none would carry callbacks that can never fire. |
 
 `register_navbar_callbacks()` stays public and idempotent for the app that
 mounts `NAVBAR_COLLAPSE_DIV_SHARED_ID` in a navbar of its own and never calls

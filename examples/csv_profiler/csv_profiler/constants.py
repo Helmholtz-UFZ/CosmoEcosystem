@@ -1,11 +1,29 @@
 """HTML ID constants for the CSV profiler workflow pages.
 
 Domain-specific ids for the example's home / input / job_submission / results
-pages. Shared framework ids (URL_LOCATION, RESET_JOB_STORE, LOADING_OVERLAY, …)
-come from ``cosmo_ecosystem.constants``.
+pages, plus the job-reset modal shared by input and job_submission. Shared
+framework ids (URL_LOCATION, LOADING_OVERLAY, …) come from
+``cosmo_ecosystem.constants``.
 
 Naming convention: <NAME>_<TYPE>_<PAGE>_ID (see docs/conventions/html_ids.md).
 """
+
+# =============================================================================
+# SHARED (job reset, see csv_profiler/job_reset.py)
+# =============================================================================
+
+# --- Buttons ---
+RESET_CANCEL_BUTTON_SHARED_ID = "reset-cancel-button-shared-id"
+RESET_CONFIRM_BUTTON_SHARED_ID = "reset-confirm-button-shared-id"
+
+# --- Divs ---
+RESET_BODY_DIV_SHARED_ID = "reset-body-div-shared-id"
+
+# --- Modals ---
+RESET_CONFIRM_MODAL_SHARED_ID = "reset-confirm-modal-shared-id"
+
+# --- Stores ---
+RESET_JOB_STORE_SHARED_ID = "reset-job-store-shared-id"
 
 # =============================================================================
 # HOME

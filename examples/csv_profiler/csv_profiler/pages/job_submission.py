@@ -14,14 +14,12 @@ from dash_form_factory import FormFactory
 
 from cosmo_ecosystem.constants import (
     LOADING_OVERLAY_MODAL_SHARED_ID,
-    RESET_JOB_STORE_SHARED_ID,
     URL_LOCATION_SHARED_ID,
 )
 from cosmo_ecosystem.error_handling import InvalidJobID, JobNotFound
 from cosmo_ecosystem.files_route import create_download_button
 from cosmo_ecosystem.job import Job
 from cosmo_ecosystem.layouts import (
-    create_job_header,
     job_not_found_layout,
     landing_page_layout_column,
 )
@@ -35,12 +33,14 @@ from csv_profiler.constants import (
     JOB_LOGS_DIV_JOB_SUBMISSION_ID,
     JOB_STORE_JOB_SUBMISSION_ID,
     MAIN_CONTENT_DIV_JOB_SUBMISSION_ID,
+    RESET_JOB_STORE_SHARED_ID,
     RESUBMIT_BUTTON_JOB_SUBMISSION_ID,
     STATUS_DIV_JOB_SUBMISSION_ID,
     SUBMIT_BUTTON_JOB_SUBMISSION_ID,
     VIEW_RESULTS_BUTTON_JOB_SUBMISSION_ID,
 )
 from csv_profiler.forms import form_layout_template
+from csv_profiler.layouts import create_job_header
 
 log = logging.getLogger(__name__)
 

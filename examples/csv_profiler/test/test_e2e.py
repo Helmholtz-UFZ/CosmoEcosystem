@@ -17,8 +17,6 @@ from cosmo_ecosystem.constants import (
     DOWNLOAD_BUTTON_SHARED_ID,
     NAVBAR_COLLAPSE_DIV_SHARED_ID,
     NAVBAR_TOGGLER_BUTTON_SHARED_ID,
-    RESET_CONFIRM_BUTTON_SHARED_ID,
-    RESET_CONFIRM_MODAL_SHARED_ID,
 )
 
 from csv_profiler.constants import (
@@ -29,6 +27,9 @@ from csv_profiler.constants import (
     CSV_UPLOAD_INPUT_ID,
     JOB_INPUT_HOME_ID,
     JOB_LOGS_DIV_JOB_SUBMISSION_ID,
+    RESET_CONFIRM_BUTTON_SHARED_ID,
+    RESET_CONFIRM_MODAL_SHARED_ID,
+    RESUBMIT_BUTTON_JOB_SUBMISSION_ID,
     START_BUTTON_HOME_ID,
     STATUS_DIV_JOB_SUBMISSION_ID,
     SUBMIT_BUTTON_JOB_SUBMISSION_ID,
@@ -179,6 +180,33 @@ def test_full_csv_profiling_flow(page, dash_app, celery_worker):
 
     # 15. Verify download button is present
     expect(page.locator(f"#{DOWNLOAD_BUTTON_SHARED_ID}")).to_be_visible(timeout=5000)
+    check_all_errors(page)
+
+    # 16. Resubmit the COMPLETED job: confirm in the reset modal, which resets,
+    # submits and lands on /job-submission/<job_id> again
+    resubmit_btn = page.locator(f"#{RESUBMIT_BUTTON_JOB_SUBMISSION_ID}")
+    expect(resubmit_btn).to_be_enabled(timeout=5000)
+    resubmit_btn.click()
+    modal = page.locator(f"#{RESET_CONFIRM_MODAL_SHARED_ID}")
+    expect(modal).to_be_visible(timeout=10000)
+    expect(modal).to_contain_text("resubmit")
+    page.locator(f"#{RESET_CONFIRM_BUTTON_SHARED_ID}").click()
+    page.wait_for_url(f"**/job-submission/{job_id}", timeout=10000)
+    wait_for_dash_callback(page)
+
+    # 17. The resubmitted job runs to COMPLETED again
+    status_div = page.locator(f"#{STATUS_DIV_JOB_SUBMISSION_ID}")
+    start = time.monotonic()
+    while time.monotonic() - start < max_wait:
+        page.wait_for_timeout(3000)
+        status_text = status_div.text_content()
+        if "COMPLETED" in status_text:
+            logging.info("Resubmitted job completed")
+            break
+        if "FAILED" in status_text:
+            pytest.fail("Resubmitted job failed unexpectedly")
+    else:
+        pytest.fail(f"Resubmitted job did not complete within {max_wait}s")
     check_all_errors(page)
     logging.info("E2E test passed")
 

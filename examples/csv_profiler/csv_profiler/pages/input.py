@@ -12,7 +12,6 @@ from dash import Input, Output, State, callback, callback_context, dcc, html
 from dash_form_factory import FormFactory
 from cosmo_ecosystem import job_persistence
 from cosmo_ecosystem.constants import (
-    RESET_JOB_STORE_SHARED_ID,
     URL_LOCATION_SHARED_ID,
 )
 from cosmo_ecosystem.error_handling import (
@@ -22,7 +21,6 @@ from cosmo_ecosystem.error_handling import (
 )
 from cosmo_ecosystem.job import Job
 from cosmo_ecosystem.layouts import (
-    create_job_header,
     job_not_found_layout,
     landing_page_layout_column,
 )
@@ -35,10 +33,12 @@ from csv_profiler.constants import (
     JOB_STORE_INPUT_ID,
     MAIN_CONTENT_DIV_INPUT_ID,
     RESET_JOB_BUTTON_INPUT_ID,
+    RESET_JOB_STORE_SHARED_ID,
     UPLOAD_FEEDBACK_DIV_INPUT_ID,
     UPLOADED_FILE_NAME_STORE_INPUT_ID,
 )
 from csv_profiler.forms import form_factory, form_layout_template
+from csv_profiler.layouts import create_job_header
 
 log = logging.getLogger(__name__)
 
