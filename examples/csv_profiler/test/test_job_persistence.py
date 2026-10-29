@@ -504,7 +504,7 @@ def test_a_served_picture_and_download_are_current_when_the_local_copy_was_stale
     _write(job_id, FILE_NAME, STALE)
     app = dash.Dash(__name__)
     app.layout = dash.html.Div()
-    serve_files(app)
+    serve_files(app, job_class=Job)
     client = app.server.test_client()
 
     try:

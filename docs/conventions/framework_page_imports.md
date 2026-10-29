@@ -24,7 +24,7 @@ no failing test, and a symptom that surfaces somewhere else entirely.**
 | Importing … | also imports | which registers |
 | --- | --- | --- |
 | any framework page | `cosmo_ecosystem.layouts` | nothing since v0.7.0 — the navbar-collapse callback used to be here, see [silent failure 4](#4-an-import-registers-a-callback-and-a-consumer-never-asked) |
-| `pages.job_management` | `cosmo_ecosystem.job_retention`, `cosmo_ecosystem.job_persistence`, `cosmo_ecosystem.db_manager` (not `cosmo_ecosystem.job`: it cleans through `job_retention` and deletes through `job_persistence`) | its own page + three callbacks |
+| `pages.job_management` | `cosmo_ecosystem.job_retention`, `cosmo_ecosystem.job_persistence`, `cosmo_ecosystem.db_manager` (not `cosmo_ecosystem.job`: it cleans through `job_retention` and deletes through `job_persistence`) | its own page + two callbacks, one of them clientside (the overlay opener). Raises `JobLinkNotConfigured` instead when `cosmo_ecosystem.pages.job_link` is unset |
 | `pages.worker_management` | `cosmo_ecosystem.background_job_manager` | its own page + eleven callbacks, one of them clientside |
 | `layouts.app_layout()` | — | the navbar-collapse callback on `NAVBAR_TOGGLER_BUTTON_SHARED_ID` / `NAVBAR_COLLAPSE_DIV_SHARED_ID` — it mounts that navbar |
 | `layouts.register_navbar_callbacks()` | — | the navbar-collapse callback, for an app that mounts the shared id in a navbar of its own |
@@ -32,10 +32,28 @@ no failing test, and a symptom that surfaces somewhere else entirely.**
 Two consequences follow from "at import time":
 
 1. **Every seam must be set before the import.** `Job.config_model`,
-   `Job.submit_handler`, `Job.app_version`, `layouts.default_wrapper_class` —
-   configure them, *then* import the pages. `pages/job_management.py` builds its
-   `layout` as a module-level statement, so a value set afterwards reaches the
-   other two pages and silently misses that one.
+   `Job.submit_handler`, `Job.app_version`, `layouts.default_wrapper_class`,
+   `pages.job_link` — configure them, *then* import the pages.
+   `pages/job_management.py` builds its `layout` as a module-level statement, so a
+   value set afterwards reaches the other two pages and silently misses that one.
+   Assign the module attribute; a `from … import` binds a copy and configures
+   nothing.
+
+   `cosmo_ecosystem.pages.job_link` is the one that is **required**: a callable
+   `(job_id: str, row: dict) -> str` giving the href of a row in the job
+   management table, where `row` is the job's full `DbManager.list_jobs()` entry
+   (so a link may depend on `status` or an app-only column such as COSMONAUT's
+   `stage`). It has no default, and the page raises `JobLinkNotConfigured` at
+   import while it is unset — a forgotten link would otherwise only show as a
+   table of dead links. It sits on the `pages` package, not on the page module,
+   because a module's own attribute cannot be assigned before that module is
+   imported; importing the package imports no page.
+
+   ```python
+   import cosmo_ecosystem.pages
+   cosmo_ecosystem.pages.job_link = lambda job_id, row: f"/job-submission/{job_id}"
+   import cosmo_ecosystem.pages.job_management  # noqa: E402, F401
+   ```
 2. **Order matters relative to `Dash()`.** `register_page` needs the app to
    exist, which is why the example imports the framework pages *after* the
    `Dash(...)` call rather than at the top of `app.py`.

@@ -14,6 +14,7 @@ from importlib.metadata import version
 import dash_bootstrap_components as dbc
 from dash import Dash
 
+import cosmo_ecosystem.pages
 from cosmo_ecosystem.config import DEBUG, PORT
 from cosmo_ecosystem.db_manager import DbManager
 from cosmo_ecosystem.error_handling import handle_error
@@ -39,6 +40,10 @@ Job.app_version = version("csv-profiler")
 # Same rule as the Job seams above: DbManager.job_table must be set on
 # DbManager itself, before any framework page or Job method runs.
 DbManager.job_table = JobTable
+
+# Same rule again: the job management page reads its row link at import time and
+# refuses to import without one. Assign the package attribute, not a copy.
+cosmo_ecosystem.pages.job_link = lambda job_id, row: f"/job-submission/{job_id}"
 
 # Configure logging BEFORE Dash() and any getLogger() calls.
 logging.config.dictConfig(get_logger_config_web(DEBUG))
@@ -75,7 +80,7 @@ create_bucket()
 # would run once per worker. See docs/conventions/celery_beat.md in cosmo-ecosystem.
 
 # Serve files
-serve_files(app)
+serve_files(app, job_class=Job)
 
 # Main app layout. app_layout() registers the navbar-collapse callback itself,
 # since it is the thing that mounts the navbar; an app building its own navbar

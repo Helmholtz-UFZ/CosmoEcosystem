@@ -90,15 +90,17 @@ def test_picture_route_rejects_traversal(client):
     assert response.status_code == 404
 
 
-def test_default_job_class_keeps_serve_files_call_sites_working():
-    """``serve_files(app)`` still binds the framework Job — the seam is additive."""
+def test_serve_files_requires_a_job_class():
+    """``serve_files(app)`` without ``job_class`` is a ``TypeError``.
+
+    There is no default: a default would make ``files_route`` import the concrete
+    framework ``Job``, and an app with its own job class would silently get routes
+    resolving ids against the wrong table.
+    """
     app = dash.Dash(__name__)
 
-    serve_files(app)
-
-    routes = {rule.rule for rule in app.server.url_map.iter_rules()}
-    assert "/download/<job_id>.zip" in routes
-    assert "/pictures/<job_id>/<path:filename>" in routes
+    with pytest.raises(TypeError):
+        serve_files(app)
 
 
 @pytest.mark.parametrize("error", [JobNotFound("no_such_job"), InvalidJobID("no/such")])
