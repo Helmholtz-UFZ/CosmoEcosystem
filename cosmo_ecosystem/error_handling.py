@@ -128,6 +128,23 @@ class JobTableNotConfigured(Exception):
         )
 
 
+class JobLinkNotConfigured(Exception):
+    """Raised when the job management page is imported before its link seam is set.
+
+    Raised at import time, not in a callback, so it never reaches the error modal:
+    the app does not start. See docs/conventions/framework_page_imports.md.
+    """
+
+    def __init__(self):
+        """Format the error message with a pointer to the fix."""
+        super().__init__(
+            "cosmo_ecosystem.pages.job_link is not set — the application must "
+            "assign a callable (job_id: str, row: dict) -> str to it before "
+            "importing cosmo_ecosystem.pages.job_management. Assign the package "
+            "attribute; `from cosmo_ecosystem.pages import job_link` binds a copy."
+        )
+
+
 USE_ERROR_MESSAGE = "use_error_message"
 """Sentinel message: show ``str(error)`` to the user instead of a fixed text.
 

@@ -25,12 +25,20 @@ from cosmo_ecosystem.constants import (
     LOADING_OVERLAY_MODAL_SHARED_ID,
     REFRESH_BUTTON_JOB_MANAGEMENT_ID,
 )
+from cosmo_ecosystem import pages
+from cosmo_ecosystem.error_handling import JobLinkNotConfigured
 from cosmo_ecosystem.job_persistence import delete_jobs
 from cosmo_ecosystem.job_retention import clean_up_jobs
 from cosmo_ecosystem.layouts import create_header, page_container_column_layout
 from cosmo_ecosystem.db_manager import DbManager
 
 log = logging.getLogger(__name__)
+
+# The row link is the one thing the apps disagree on, so it is a seam with no
+# default (see `cosmo_ecosystem/pages/__init__.py`). Checked here, at import,
+# because a missing link would otherwise only show as dead links in the table.
+if pages.job_link is None:
+    raise JobLinkNotConfigured()
 
 
 table = dag.AgGrid(
@@ -123,24 +131,52 @@ layout = page_container_column_layout(
 )
 
 
-@callback(
+def build_rows(jobs):
+    """Turn ``DbManager.list_jobs()`` into AG Grid rows.
+
+    The job id links to wherever the app's ``pages.job_link`` says; it gets the
+    full row so the link can depend on any column. Read through the package at
+    call time, never bound at import, so the seam stays a seam.
+    """
+    rows = []
+    for job_id, job_data in jobs.items():
+        start_date = (
+            job_data["start_date"].strftime("%Y-%m-%d %H:%M:%S")
+            if isinstance(job_data["start_date"], datetime)
+            else job_data["start_date"]
+        )
+        rows.append(
+            {
+                "job_id": f"[{job_id}]({pages.job_link(job_id, job_data)})",
+                "status": job_data["status"],
+                "start_date": start_date,
+                "submitted": "Yes" if job_data["submitted"] else "No",
+            }
+        )
+    return rows
+
+
+# Clientside, as docs/conventions/callbacks.md requires: it runs in the browser
+# before the server roundtrip starts. A server-side opener can land after the
+# processing callback has closed the overlay (both write it via allow_duplicate)
+# and leave it stuck open. Inputs are the three buttons only, not the dummy store:
+# the store should not show the overlay, and identical inputs would give both
+# callbacks the same allow_duplicate id.
+dash.clientside_callback(
+    """
+    function() {
+        for (var i = 0; i < arguments.length; i++) {
+            if (arguments[i] != null) return true;
+        }
+        return false;
+    }
+    """,
     Output(LOADING_OVERLAY_MODAL_SHARED_ID, "is_open", allow_duplicate=True),
     Input(DELETE_BUTTON_JOB_MANAGEMENT_ID, "n_clicks"),
     Input(CLEAN_BUTTON_JOB_MANAGEMENT_ID, "n_clicks"),
     Input(REFRESH_BUTTON_JOB_MANAGEMENT_ID, "n_clicks"),
     prevent_initial_call=True,
 )
-def open_loading_overlay(*args):
-    """Open the loading overlay when any action button is clicked.
-
-    A clientside_callback would eliminate the race condition between this
-    callback and the processing callback (both target LOADING_OVERLAY via
-    allow_duplicate). Server-side is used here for consistency — the project
-    avoids JS. If the overlay flickers or gets stuck, switch to clientside.
-    """
-    if all(v is None for v in args):
-        return dash.no_update
-    return True
 
 
 @callback(
@@ -170,27 +206,7 @@ def job_management_dashboard(
         log.info("Cleaning unsubmitted jobs")
         clean_up_jobs(days_delete_not_submitted=0)
 
-    jobs_dict = DbManager.list_jobs()
-
-    rows = []
-    for job_id, job_data in jobs_dict.items():
-        start_date = (
-            job_data["start_date"].strftime("%Y-%m-%d %H:%M:%S")
-            if isinstance(job_data["start_date"], datetime)
-            else job_data["start_date"]
-        )
-
-        # Link to job submission page for all jobs
-        job_id_markdown = f"[{job_id}](/job-submission/{job_id})"
-
-        rows.append(
-            {
-                "job_id": job_id_markdown,
-                "status": job_data["status"],
-                "start_date": start_date,
-                "submitted": "Yes" if job_data["submitted"] else "No",
-            }
-        )
+    rows = build_rows(DbManager.list_jobs())
 
     if button_id in [DELETE_BUTTON_JOB_MANAGEMENT_ID, CLEAN_BUTTON_JOB_MANAGEMENT_ID]:
         return rows, [], False
