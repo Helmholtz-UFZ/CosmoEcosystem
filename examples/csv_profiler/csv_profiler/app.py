@@ -79,7 +79,7 @@ create_bucket()
 # would run once per worker. See docs/conventions/celery_beat.md in cosmo-ecosystem.
 
 # Serve files
-serve_files(app)
+serve_files(app, job_class=Job)
 
 # Main app layout. app_layout() registers the navbar-collapse callback itself,
 # since it is the thing that mounts the navbar; an app building its own navbar
