@@ -12,7 +12,6 @@ from flask import abort, send_file, send_from_directory
 from cosmo_ecosystem import job_persistence
 from cosmo_ecosystem.constants import DOWNLOAD_BUTTON_SHARED_ID
 from cosmo_ecosystem.error_handling import InvalidJobID, JobNotFound
-from cosmo_ecosystem.job import Job
 
 log = logging.getLogger(__name__)
 
@@ -36,22 +35,21 @@ def create_download_button(job_id, class_name="w-100 mt-2"):
     )
 
 
-def serve_files(app, *, job_class=Job):
+def serve_files(app, *, job_class):
     """Serve static files from a directory.
 
     Args:
         app: The Dash app whose Flask server carries the routes.
         job_class: The job class the routes construct to resolve and validate a
-            job id. Defaults to the framework's concrete ``Job``; an app with
-            its own job class passes it here instead of keeping a copy of this
-            module. Keyword-only with a behaviour-preserving default, so
-            existing ``serve_files(app)`` calls are unaffected.
+            job id: the app's own job class, or the framework's concrete ``Job``.
+            Required, with no default, so this module never imports a concrete
+            job class and no app gets routes bound to one it does not use.
 
-            Beyond the ``BaseJob`` contract these routes need two things from
-            the class: it must be constructible as ``job_class(job_id)``,
-            raising ``JobNotFound`` or ``InvalidJobID`` for an unknown or
-            malformed id (the routes answer 404), and instances must expose
-            ``job_id``. The routes fetch the files themselves, through
+            The class must satisfy the ``BaseJob`` contract, and beyond it
+            these routes need two things from it: it must be constructible as
+            ``job_class(job_id)``, raising ``JobNotFound`` or ``InvalidJobID``
+            for an unknown or malformed id (the routes answer 404), and
+            instances must expose ``job_id``. The routes fetch the files themselves, through
             ``job_persistence.work_dir``.
     """
 
