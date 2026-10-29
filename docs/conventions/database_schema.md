@@ -206,3 +206,23 @@ CREATE INDEX IF NOT EXISTS job_logs_job_id_idx ON job_logs (job_id);
 handler writes a batch in one insert, and one long module name must not fail
 the whole batch. There is no foreign key to `jobs`: COSMONAUT's job table is its
 own, and a job log is cleared explicitly with the job.
+
+### Applying DDL to the UFZ databases
+
+The app's `_rw` role has no `CREATE`, so DDL runs as the `_adm` role, with the
+password taken from `~/.pgpass` (`psql -w`). Each app's `./schema_diff.sh <host> <db>
+<user>` compares a live database with its `docker/init.sql`, read-only. Run it before
+and after the DDL.
+
+Check the grants with a catalog query, because psql's `\dp` / `\d` fail here: the
+local psql is newer than the UFZ servers, and the meta-command errors out (`operator is
+not unique: unknown || "char"`). With `ON_ERROR_STOP`, that also aborts everything
+after it in the script.
+
+```sql
+SELECT relname, relacl FROM pg_class WHERE relname LIKE 'job_logs%';
+```
+
+New tables get the `_rw`/`_ro` grants from the `_adm` role's default privileges;
+grant explicitly anyway, so the DDL does not depend on them. Prove the `_rw` role
+can write with an insert as `_rw` inside `BEGIN … ROLLBACK`.
