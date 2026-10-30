@@ -43,6 +43,25 @@ from help_functions_tests import check_all_errors, wait_for_dash_callback
 BASE_URL = f"http://localhost:{PORT}"
 SAMPLE_CSV = os.path.join(os.path.dirname(__file__), "sample_mixed.csv")
 TRIGGER_ERROR_CHECKBOX_ID = form_factory.id_format.format(field_name="trigger_error")
+STATUS_MAX_WAIT_S = 60
+
+
+def wait_for_job_status(page, expected, label="Job"):
+    """Poll the submission page's status div until it shows ``expected``.
+
+    Fails the test on timeout, and on FAILED unless FAILED is what is expected.
+    """
+    status_div = page.locator(f"#{STATUS_DIV_JOB_SUBMISSION_ID}")
+    start = time.monotonic()
+    while time.monotonic() - start < STATUS_MAX_WAIT_S:
+        page.wait_for_timeout(3000)
+        status_text = status_div.text_content()
+        if expected in status_text:
+            logging.info(f"{label} reached {expected}")
+            return
+        if "FAILED" in status_text:
+            pytest.fail(f"{label} failed unexpectedly")
+    pytest.fail(f"{label} did not reach {expected} within {STATUS_MAX_WAIT_S}s")
 
 
 def test_home_page_loads(page, dash_app):
@@ -127,19 +146,7 @@ def test_full_csv_profiling_flow(page, dash_app, celery_worker):
     logging.info("Job submitted")
 
     # 9. Wait for status to change to COMPLETED (poll via interval)
-    status_div = page.locator(f"#{STATUS_DIV_JOB_SUBMISSION_ID}")
-    max_wait = 60
-    start = time.monotonic()
-    while time.monotonic() - start < max_wait:
-        page.wait_for_timeout(3000)
-        status_text = status_div.text_content()
-        if "COMPLETED" in status_text:
-            logging.info("Job completed")
-            break
-        if "FAILED" in status_text:
-            pytest.fail("Job failed unexpectedly")
-    else:
-        pytest.fail(f"Job did not complete within {max_wait}s")
+    wait_for_job_status(page, "COMPLETED")
 
     # 10. Verify accordion shows the job log, read from the database: the
     # worker writes no log file the web process could read
@@ -195,18 +202,7 @@ def test_full_csv_profiling_flow(page, dash_app, celery_worker):
     wait_for_dash_callback(page)
 
     # 17. The resubmitted job runs to COMPLETED again
-    status_div = page.locator(f"#{STATUS_DIV_JOB_SUBMISSION_ID}")
-    start = time.monotonic()
-    while time.monotonic() - start < max_wait:
-        page.wait_for_timeout(3000)
-        status_text = status_div.text_content()
-        if "COMPLETED" in status_text:
-            logging.info("Resubmitted job completed")
-            break
-        if "FAILED" in status_text:
-            pytest.fail("Resubmitted job failed unexpectedly")
-    else:
-        pytest.fail(f"Resubmitted job did not complete within {max_wait}s")
+    wait_for_job_status(page, "COMPLETED", label="Resubmitted job")
     check_all_errors(page)
     logging.info("E2E test passed")
 
@@ -253,17 +249,7 @@ def test_error_recovery_flow(page, dash_app, celery_worker):
     logging.info("Submitted with trigger_error=True")
 
     # 5. Wait for FAILED
-    status_div = page.locator(f"#{STATUS_DIV_JOB_SUBMISSION_ID}")
-    max_wait = 60
-    start = time.monotonic()
-    while time.monotonic() - start < max_wait:
-        page.wait_for_timeout(3000)
-        status_text = status_div.text_content()
-        if "FAILED" in status_text:
-            logging.info("Job failed as expected")
-            break
-    else:
-        pytest.fail(f"Job did not fail within {max_wait}s")
+    wait_for_job_status(page, "FAILED")
 
     # 6. Click "Change Input" → confirmation modal appears (job is FAILED)
     change_btn = page.locator(f"#{CHANGE_INPUT_BUTTON_JOB_SUBMISSION_ID}")
@@ -300,17 +286,7 @@ def test_error_recovery_flow(page, dash_app, celery_worker):
     logging.info("Submitted with trigger_error=False")
 
     # 9. Wait for COMPLETED
-    start = time.monotonic()
-    while time.monotonic() - start < max_wait:
-        page.wait_for_timeout(3000)
-        status_text = status_div.text_content()
-        if "COMPLETED" in status_text:
-            logging.info("Job completed after resubmit")
-            break
-        if "FAILED" in status_text:
-            pytest.fail("Job failed on resubmit — should have succeeded")
-    else:
-        pytest.fail(f"Job did not complete within {max_wait}s")
+    wait_for_job_status(page, "COMPLETED", label="Job after resubmit")
 
     # 10. Verify results page loads
     results_btn = page.locator(f"#{VIEW_RESULTS_BUTTON_JOB_SUBMISSION_ID}")
