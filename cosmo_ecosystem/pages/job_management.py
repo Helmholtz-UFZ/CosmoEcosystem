@@ -15,7 +15,7 @@ from datetime import datetime
 import dash
 import dash_ag_grid as dag
 import dash_bootstrap_components as dbc
-from dash import Input, Output, State, callback, dcc, html
+from dash import Input, Output, State, callback, callback_context, dcc, html
 
 from cosmo_ecosystem.constants import (
     CLEAN_BUTTON_JOB_MANAGEMENT_ID,
@@ -41,6 +41,15 @@ if pages.job_link is None:
     raise JobLinkNotConfigured()
 
 
+# Status colours as Bootstrap classes (bootstrap_styling.md: no inline CSS).
+# `text-bg-*` sets a contrasting text colour with the background.
+STATUS_CELL_CLASS_RULES = {
+    "text-bg-primary": "params.value === 'COMPLETED'",
+    "text-bg-success": "params.value === 'RUNNING'",
+    "text-bg-danger": "params.value === 'FAILED'",
+    "text-bg-warning": "params.value === 'PENDING'",
+}
+
 table = dag.AgGrid(
     id=JOBS_TABLE_JOB_MANAGEMENT_ID,
     columnDefs=[
@@ -48,37 +57,18 @@ table = dag.AgGrid(
             "field": "job_id",
             "headerName": "Job ID",
             "cellRenderer": "markdown",
-            "cellStyle": {"textAlign": "left", "fontFamily": "monospace"},
+            "cellClass": "text-start font-monospace",
         },
         {
             "field": "status",
             "headerName": "Status",
-            "cellStyle": {
-                "styleConditions": [
-                    {
-                        "condition": "params.value === 'COMPLETED'",
-                        "style": {"backgroundColor": "#3498db"},
-                    },
-                    {
-                        "condition": "params.value === 'RUNNING'",
-                        "style": {"backgroundColor": "#2ecc71"},
-                    },
-                    {
-                        "condition": "params.value === 'FAILED'",
-                        "style": {"backgroundColor": "#e74c3c"},
-                    },
-                    {
-                        "condition": "params.value === 'PENDING'",
-                        "style": {"backgroundColor": "#f39c12"},
-                    },
-                ],
-            },
+            "cellClassRules": STATUS_CELL_CLASS_RULES,
         },
         {"field": "start_date", "headerName": "Start Date"},
         {"field": "submitted", "headerName": "Submitted"},
     ],
     rowData=[],
-    defaultColDef={"cellStyle": {"textAlign": "center"}},
+    defaultColDef={"cellClass": "text-center"},
     dashGridOptions={
         "rowSelection": {"mode": "multiRow"},
         "suppressCellFocus": True,
@@ -195,20 +185,29 @@ def job_management_dashboard(
 ):
     """Manage job actions in the dashboard."""
     log.info("Job management dashboard callback triggered.")
-    button_id = dash.callback_context.triggered[0]["prop_id"].split(".")[0]
+    # A set, not triggered[0]: Dash may batch several inputs into one call
+    # (callbacks.md, "Identifying the Trigger").
+    triggered_ids = {
+        t["prop_id"].split(".")[0]
+        for t in callback_context.triggered
+        if t["value"] is not None
+    }
 
-    if button_id == DELETE_BUTTON_JOB_MANAGEMENT_ID and selected_rows:
+    if DELETE_BUTTON_JOB_MANAGEMENT_ID in triggered_ids and selected_rows:
         log.info("Deleting selected jobs")
         delete_jobs(
             [re.findall(r"\[(.*?)\]", row["job_id"])[0] for row in selected_rows]
         )
-    elif button_id == CLEAN_BUTTON_JOB_MANAGEMENT_ID:
+    if CLEAN_BUTTON_JOB_MANAGEMENT_ID in triggered_ids:
         log.info("Cleaning unsubmitted jobs")
         clean_up_jobs(days_delete_not_submitted=0)
 
     rows = build_rows(DbManager.list_jobs())
 
-    if button_id in [DELETE_BUTTON_JOB_MANAGEMENT_ID, CLEAN_BUTTON_JOB_MANAGEMENT_ID]:
+    if triggered_ids & {
+        DELETE_BUTTON_JOB_MANAGEMENT_ID,
+        CLEAN_BUTTON_JOB_MANAGEMENT_ID,
+    }:
         return rows, [], False
     return rows, dash.no_update, False
 

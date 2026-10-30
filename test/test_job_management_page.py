@@ -12,6 +12,8 @@ from datetime import datetime
 import dash
 import pytest
 from dash._callback import GLOBAL_CALLBACK_LIST
+from dash._callback_context import context_value
+from dash._utils import AttributeDict
 
 from cosmo_ecosystem import pages
 from cosmo_ecosystem.constants import (
@@ -26,7 +28,7 @@ PAGE_MODULE = "cosmo_ecosystem.pages.job_management"
 OVERLAY_OUTPUT = f"{LOADING_OVERLAY_MODAL_SHARED_ID}.is_open"
 
 
-def _link_by_status(job_id, row):
+def _link_by_stage(job_id, row):
     """A link that needs more than the id, as COSMONAUT's does."""
     return f"/{row['stage']}/{job_id}"
 
@@ -39,7 +41,7 @@ def job_management():
     page's callbacks in Dash's process-global list, so it happens once per module.
     """
     dash.Dash(__name__, use_pages=True, pages_folder="")
-    pages.job_link = _link_by_status
+    pages.job_link = _link_by_stage
     module = importlib.import_module(PAGE_MODULE)
     yield module
     pages.job_link = None
@@ -56,7 +58,7 @@ def test_import_without_job_link_raises_naming_the_seam(job_management):
             importlib.import_module(PAGE_MODULE)
     finally:
         sys.modules[PAGE_MODULE] = job_management
-        pages.job_link = _link_by_status
+        pages.job_link = _link_by_stage
 
 
 def test_rows_link_where_job_link_says_with_the_full_row(job_management):
@@ -115,3 +117,44 @@ def test_overlay_opener_is_clientside(job_management):
     # The only server-side writer left is the processing callback, which closes it.
     assert len(server_side) == 1
     assert len(server_side[0]["inputs"]) == 4
+
+
+def test_batched_delete_and_refresh_still_deletes(job_management, monkeypatch):
+    """callbacks.md: Dash may batch inputs; triggered[0] would see only one of them.
+
+    Refresh is listed first in ``triggered`` here, so a ``triggered[0]`` dispatch
+    would skip the delete the user asked for.
+    """
+    deleted = []
+    monkeypatch.setattr(job_management, "delete_jobs", deleted.extend)
+    monkeypatch.setattr(job_management.DbManager, "list_jobs", lambda: {})
+    context_value.set(
+        AttributeDict(
+            triggered_inputs=[
+                {"prop_id": f"{REFRESH_BUTTON_JOB_MANAGEMENT_ID}.n_clicks", "value": 1},
+                {"prop_id": f"{DELETE_BUTTON_JOB_MANAGEMENT_ID}.n_clicks", "value": 1},
+            ]
+        )
+    )
+
+    result = job_management.job_management_dashboard(
+        1, None, 1, None, [{"job_id": "[abc123](/x/abc123)"}]
+    )
+
+    assert deleted == ["abc123"]
+    assert result == ([], [], False)
+
+
+def test_status_colours_are_bootstrap_classes_not_inline_css(job_management):
+    """bootstrap_styling.md: no inline CSS, so no ``cellStyle`` in the grid."""
+    grid = job_management.table
+    column_defs = [*grid.columnDefs, grid.defaultColDef]
+
+    assert all("cellStyle" not in col for col in column_defs)
+    status = next(col for col in grid.columnDefs if col["field"] == "status")
+    assert set(status["cellClassRules"]) == {
+        "text-bg-primary",
+        "text-bg-success",
+        "text-bg-danger",
+        "text-bg-warning",
+    }
