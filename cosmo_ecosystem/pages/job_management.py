@@ -42,8 +42,8 @@ if pages.job_link is None:
 
 
 # Inline CSS on purpose (CLAUDE.md, "Convention Philosophy"): the status colours
-# are fixed across COSMOPOLITAN, COSMONAUT and csv_profiler, and the user docs name
-# them. Bootstrap classes would take each app's theme colours instead.
+# are the same in every consuming app, and the apps' user docs name them.
+# Bootstrap classes would take each app's theme colours instead.
 STATUS_CELL_STYLE = {
     "styleConditions": [
         {
