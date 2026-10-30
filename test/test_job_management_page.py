@@ -145,16 +145,20 @@ def test_batched_delete_and_refresh_still_deletes(job_management, monkeypatch):
     assert result == ([], [], False)
 
 
-def test_status_colours_are_bootstrap_classes_not_inline_css(job_management):
-    """bootstrap_styling.md: no inline CSS, so no ``cellStyle`` in the grid."""
-    grid = job_management.table
-    column_defs = [*grid.columnDefs, grid.defaultColDef]
+def test_status_colours_are_fixed_hex_values(job_management):
+    """The status colours are the same in every app, independent of the theme."""
+    status = next(
+        col for col in job_management.table.columnDefs if col["field"] == "status"
+    )
 
-    assert all("cellStyle" not in col for col in column_defs)
-    status = next(col for col in grid.columnDefs if col["field"] == "status")
-    assert set(status["cellClassRules"]) == {
-        "text-bg-primary",
-        "text-bg-success",
-        "text-bg-danger",
-        "text-bg-warning",
+    colours = {
+        cond["condition"]: cond["style"]["backgroundColor"]
+        for cond in status["cellStyle"]["styleConditions"]
     }
+    assert colours == {
+        "params.value === 'COMPLETED'": "#3498db",
+        "params.value === 'RUNNING'": "#2ecc71",
+        "params.value === 'FAILED'": "#e74c3c",
+        "params.value === 'PENDING'": "#f39c12",
+    }
+    assert "cellClassRules" not in status

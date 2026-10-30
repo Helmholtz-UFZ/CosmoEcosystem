@@ -41,13 +41,28 @@ if pages.job_link is None:
     raise JobLinkNotConfigured()
 
 
-# Status colours as Bootstrap classes (bootstrap_styling.md: no inline CSS).
-# `text-bg-*` sets a contrasting text colour with the background.
-STATUS_CELL_CLASS_RULES = {
-    "text-bg-primary": "params.value === 'COMPLETED'",
-    "text-bg-success": "params.value === 'RUNNING'",
-    "text-bg-danger": "params.value === 'FAILED'",
-    "text-bg-warning": "params.value === 'PENDING'",
+# Inline CSS on purpose (CLAUDE.md, "Convention Philosophy"): the status colours
+# are fixed across COSMOPOLITAN, COSMONAUT and csv_profiler, and the user docs name
+# them. Bootstrap classes would take each app's theme colours instead.
+STATUS_CELL_STYLE = {
+    "styleConditions": [
+        {
+            "condition": "params.value === 'COMPLETED'",
+            "style": {"backgroundColor": "#3498db"},
+        },
+        {
+            "condition": "params.value === 'RUNNING'",
+            "style": {"backgroundColor": "#2ecc71"},
+        },
+        {
+            "condition": "params.value === 'FAILED'",
+            "style": {"backgroundColor": "#e74c3c"},
+        },
+        {
+            "condition": "params.value === 'PENDING'",
+            "style": {"backgroundColor": "#f39c12"},
+        },
+    ],
 }
 
 table = dag.AgGrid(
@@ -62,7 +77,7 @@ table = dag.AgGrid(
         {
             "field": "status",
             "headerName": "Status",
-            "cellClassRules": STATUS_CELL_CLASS_RULES,
+            "cellStyle": STATUS_CELL_STYLE,
         },
         {"field": "start_date", "headerName": "Start Date"},
         {"field": "submitted", "headerName": "Submitted"},
