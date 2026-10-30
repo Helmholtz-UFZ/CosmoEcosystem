@@ -1,6 +1,5 @@
 en.utf-8.add.spl
 __pycache__
-.python-version
 .env
 examples/csv_profiler/work_dir/*
 examples/csv_profiler/test/artifacts/
