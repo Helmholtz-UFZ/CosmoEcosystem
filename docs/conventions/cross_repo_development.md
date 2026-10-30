@@ -36,8 +36,12 @@ device-specific.
   pipeline on `main` with `VERSION=X.Y.Z`. The job writes the version files, commits
   "Release X.Y.Z" and pushes the tag; the tag pipeline builds the images and
   `bump_version_for_cluster` deploys them to stage.
-- **Keep the three suites on their own port slots** so all three can run at once (see
-  [testing.md](testing.md#local-port-allocation-across-the-three-repos)).
+- **Keep the three dev stacks on their own port slots** so all three can run at once (see
+  [testing.md](testing.md#local-port-allocation-across-the-three-repos-dev-stacks)).
+  Test runs need no slot: each `run_pytest.sh` run brings up its own stack per worktree
+  on free ports ([testing.md](testing.md#one-test-stack-per-worktree)), so suites in any
+  number of worktrees of all three repos can run at the same time, without `flock` or
+  port instructions in an agent's brief.
 
 ## Examples
 

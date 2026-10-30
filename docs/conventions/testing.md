@@ -58,20 +58,50 @@ these first — they usually explain the failure without needing another run. No
 that `run_pytest.sh` clears previous artifacts by default (use `--keep-artifacts`
 to preserve them across runs).
 
-## Test containers have their own names
+## One test stack per worktree
 
-`run_pytest.sh` starts its services as compose project `cosmo_ecosystem_test` with
-containers `postgres_cosmo_ecosystem_test`, `object_storage_cosmo_ecosystem_test` and
-`redis_cosmo_ecosystem_test` (names injected by a temporary override file), and its
-cleanup runs `docker compose down -v` on that project only. The dev stack's
-`*_cosmo_ecosystem` containers are never stopped or removed by a test run; before this
-a suite started while `dev_up.sh` was running deleted the dev containers. The host
-ports below still collide with a running dev stack, so stop it first.
+Every `run_pytest.sh` run brings up its own stack, so any number of worktrees (of this
+repo and of the two apps) can run their suites at the same time:
 
-## Local port allocation across the three repos
+- **Compose project from the worktree.** The project is
+  `cosmo_ecosystem_test_<hash>`, where `<hash>` is the first 8 hex digits of the
+  sha256 of the worktree's absolute path. Containers are named
+  `postgres_<project>`, `object_storage_<project>` and `redis_<project>` (injected by
+  a temporary override file); volumes carry the project prefix. The same worktree
+  always gets the same name, so the `down -v` at the start of a run clears what a
+  crashed earlier run left there, and the `down -v` at the end removes only this
+  run's stack.
+- **Free ports picked at start.** The script asks the OS for five free TCP ports
+  (Flask, Postgres, Redis, object storage API and console) and appends them to the
+  run's `.env`, both the app-facing variables (`FLASK_PORT`, `POSTGRES_PORT`,
+  `REDIS_PORT`, `OBJECT_STORAGE_HOST`, `WEB_OUTSIDE_URL`) and the published
+  `*_HOST_PORT`. The last assignment of a key wins for python-dotenv and compose, so
+  `env_test` itself keeps its slot values. The e2e Dash server and the Celery worker
+  read the same `.env`, so they use the run's ports too. A port taken between
+  picking and binding fails loudly as "port is already allocated"; rerun.
+- **Finding a running stack.** The run prints `Compose project: …` and the ports at
+  start; `docker ps --filter label=com.docker.compose.project=<project>` shows its
+  containers.
+- **`--no-services`** picks no ports: it runs against the `env_test` values, i.e. a
+  stack you started yourself on the csv_profiler slot.
 
-All three stacks used to publish the same host ports, so **no two suites could run at
-the same time**. Each repo now has its own slot. Canonical source, do not fork it:
+The dev stack's `*_cosmo_ecosystem` containers are a different project and are never
+stopped or removed by a test run, and since the test ports are picked free, a running
+dev stack no longer gets in the way either.
+
+`check_parallel_runs.sh` (next to `run_pytest.sh`) is the acceptance check for this:
+it creates a throwaway detached worktree of `HEAD`, runs `run_pytest.sh` on the e2e
+suite in both worktrees at once, and passes when both are green and no container or
+volume of either project is left. Run it after changing `run_pytest.sh` (commit
+first: the probe worktree sees only `HEAD`). It is not a CI job; CI has no parallel
+worktrees.
+
+## Local port allocation across the three repos (dev stacks)
+
+All three stacks used to publish the same host ports, so no two could run at the same
+time. Each repo now has its own slot for its **dev stack** (`dev_up.sh`, `env_dev`).
+Test runs no longer use the slot (see above), except with `--no-services`. Canonical
+source, do not fork it:
 [`docs/plan/local-port-allocation.md`](../plan/local-port-allocation.md).
 
 | | Flask | Postgres | Redis | Object storage | Console |
@@ -95,9 +125,10 @@ Two rules that follow from it:
   not listen on the shifted port.
 - **A port collision does not look like a collision.** It shows up as setup ERRORs, or
   as e2e tests failing against no server — i.e. as a bug somewhere else entirely. It
-  cost two agents two aborted runs each before the cause was found. If service startup
-  fails or the app is unreachable, check `docker ps` for a sister stack before reading
-  any code.
+  cost two agents two aborted runs each before the cause was found. Per-worktree test
+  stacks rule it out for `run_pytest.sh`; it can still hit dev stacks and
+  `--no-services` runs. If service startup fails or the app is unreachable, check
+  `docker ps` for a sister stack before reading any code.
 
 ## Troubleshooting: `ModuleNotFoundError` for a package that is installed
 
