@@ -1,4 +1,4 @@
-# Mirrors the framework-lint and example-lint jobs in .gitlab-ci.yml.
+# Mirrors the framework-lint, example-lint and domain-free jobs in .gitlab-ci.yml.
 # The ruff hooks are local `uv run` hooks, not ruff-pre-commit: they use the ruff locked
 # in uv.lock, exactly like CI, so local and CI results cannot drift apart.
 repos:
@@ -35,6 +35,12 @@ repos:
       language: system
       pass_filenames: false
       files: '^(pyproject\.toml|uv\.lock)$'
+    - id: domain-free
+      name: framework stays domain-free
+      entry: bash ci/check-domain-free.sh
+      language: system
+      pass_filenames: false
+      files: '^cosmo_ecosystem/'
     - id: example-ruff-format
       name: example ruff format --check
       entry: bash -c 'cd examples/csv_profiler && uv run ruff format --check .'
