@@ -6,6 +6,15 @@
 
 Existing inline CSS usages are violations to be cleaned up later.
 
+### Documented exception: job status colours
+
+The job management page colours its status cells with inline AG Grid `cellStyle`
+(`STATUS_CELL_STYLE` in `cosmo_ecosystem/pages/job_management.py`): COMPLETED
+`#3498db`, RUNNING `#2ecc71`, FAILED `#e74c3c`, PENDING `#f39c12`. The colours are the
+same in every app and the apps' user docs name them. Bootstrap `text-bg-*` classes take
+each app's theme colours instead (navy and teal under COSMONAUT's theme), which is why a
+conversion to classes was reverted in v0.13.0. Leave this one inline.
+
 ---
 
 ## Common Utility Classes

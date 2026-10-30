@@ -40,17 +40,12 @@ framework-lint:
     - "uv lock --check"
 
 # Gate: the framework package must stay domain-free (no CSV-profiler references).
-# The CSV profiler lives in examples/csv_profiler/ and depends on the framework.
+# The check lives in ci/check-domain-free.sh, shared with the pre-commit hook.
 domain-free:
   stage: "lint"
   image: "python:3.13"
   script:
-    - |
-      if grep -rnE --include='*.py' 'csv_profiler|ProfileConfig|computation_module|validate_csv|profile_csv|CSV_UPLOAD' cosmo_ecosystem/ ; then
-        echo "ERROR: domain (CSV-profiler) reference found in cosmo_ecosystem/ — the framework package must stay domain-free."
-        exit 1
-      fi
-      echo "OK: cosmo_ecosystem/ is domain-free."
+    - "bash ci/check-domain-free.sh"
 
 # Framework-scope tests (static id enforcement, etc.) — no services needed.
 framework-test:

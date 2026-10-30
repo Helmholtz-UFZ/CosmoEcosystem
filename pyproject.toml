@@ -39,3 +39,8 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["cosmo_ecosystem"]
+
+# ruff 0.16 added *.md to its default file set and formats Python code blocks in
+# Markdown, which broke the code examples in the docs. Docs are not formatted.
+[tool.ruff]
+extend-exclude = ["*.md"]

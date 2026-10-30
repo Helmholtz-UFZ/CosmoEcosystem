@@ -28,6 +28,14 @@ device-specific.
 - **Merge order: framework release first, then the apps.** An app merge request is opened
   against the overlay but lands only after its pin is bumped to the released tag, because
   CI has no overlay.
+- **Re-pin only after the tag is on the GitHub mirror.** The apps pin
+  `git+https://github.com/Helmholtz-UFZ/CosmoEcosystem@vX.Y.Z`, and GitLab's push mirror
+  can lag behind the tag push. `uv lock` fails until
+  `git ls-remote --tags https://github.com/Helmholtz-UFZ/CosmoEcosystem vX.Y.Z` lists it.
+- **An app release is cut by its `release` CI job**, not by a hand-made tag: run a
+  pipeline on `main` with `VERSION=X.Y.Z`. The job writes the version files, commits
+  "Release X.Y.Z" and pushes the tag; the tag pipeline builds the images and
+  `bump_version_for_cluster` deploys them to stage.
 - **Keep the three suites on their own port slots** so all three can run at once (see
   [testing.md](testing.md#local-port-allocation-across-the-three-repos)).
 
