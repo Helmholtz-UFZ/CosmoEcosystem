@@ -39,16 +39,6 @@ NAVBAR_TOGGLER_BUTTON_SHARED_ID = "navbar-toggler-button-shared-id"
 # --- Collapses ---
 NAVBAR_COLLAPSE_DIV_SHARED_ID = "navbar-collapse-div-shared-id"
 
-# --- Reset Confirm Modal ---
-RESET_BODY_DIV_SHARED_ID = "reset-body-div-shared-id"
-RESET_CANCEL_BUTTON_SHARED_ID = "reset-cancel-button-shared-id"
-RESET_CONFIRM_BUTTON_SHARED_ID = "reset-confirm-button-shared-id"
-RESET_CONFIRM_MODAL_SHARED_ID = "reset-confirm-modal-shared-id"
-
-# --- Stores ---
-RESET_JOB_STORE_SHARED_ID = "reset-job-store-shared-id"
-
-
 # =============================================================================
 # WORKER_MANAGEMENT
 # =============================================================================

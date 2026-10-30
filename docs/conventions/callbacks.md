@@ -67,9 +67,11 @@ def app_layout(...):
 register_navbar_callbacks()
 ```
 
-The framework ships two of these, both called by `app_layout()`:
-`register_navbar_callbacks()` always, `register_reset_callbacks()` only with
-`with_reset=True`.
+The framework ships one of these, `register_navbar_callbacks()`, called by
+`app_layout()`. The example's job reset follows the same shape in its own
+package: `csv_profiler.job_reset.job_reset_components()` returns the modal and
+store and registers their callbacks (until v0.13.0 this was
+`app_layout(with_reset=True)` in the framework).
 
 ---
 

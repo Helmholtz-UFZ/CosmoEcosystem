@@ -2,47 +2,16 @@
 
 import dash
 import dash_bootstrap_components as dbc
-import logging
 
-from dash import Input, Output, State, callback, callback_context, dcc, html
+from dash import Input, Output, State, callback, dcc, html
 
 from cosmo_ecosystem.constants import (
     LOADING_OVERLAY_MODAL_SHARED_ID,
     NAVBAR_COLLAPSE_DIV_SHARED_ID,
     NAVBAR_TOGGLER_BUTTON_SHARED_ID,
-    RESET_BODY_DIV_SHARED_ID,
-    RESET_CANCEL_BUTTON_SHARED_ID,
-    RESET_CONFIRM_BUTTON_SHARED_ID,
-    RESET_CONFIRM_MODAL_SHARED_ID,
-    RESET_JOB_STORE_SHARED_ID,
     URL_LOCATION_SHARED_ID,
 )
 from cosmo_ecosystem.error_handling import error_modal
-from cosmo_ecosystem.job import Job
-
-reset_confirm_modal = dbc.Modal(
-    [
-        dbc.ModalHeader("Confirm Reset"),
-        dbc.ModalBody(id=RESET_BODY_DIV_SHARED_ID),
-        dbc.ModalFooter(
-            [
-                dbc.Button(
-                    "Cancel",
-                    id=RESET_CANCEL_BUTTON_SHARED_ID,
-                    color="secondary",
-                ),
-                dbc.Button(
-                    "Confirm",
-                    id=RESET_CONFIRM_BUTTON_SHARED_ID,
-                    color="danger",
-                ),
-            ]
-        ),
-    ],
-    id=RESET_CONFIRM_MODAL_SHARED_ID,
-    is_open=False,
-    centered=True,
-)
 
 loading_overlay = dbc.Modal(
     dbc.ModalBody(
@@ -58,7 +27,7 @@ loading_overlay = dbc.Modal(
 )
 
 
-def app_layout(with_reset=False):
+def app_layout():
     """Create the main page layout with navbar and content.
 
     Registers the navbar-collapse callback, because it mounts the navbar. The
@@ -66,20 +35,10 @@ def app_layout(with_reset=False):
     that same component is co-location, not a side effect. What must never
     happen is an *import* doing it — see ``register_navbar_callbacks``.
 
-    Note the asymmetry with ``with_reset``, which is deliberate. The reset modal
-    is optional, so registering its callbacks unasked would put a feature into a
-    consumer's process that it never wanted. The navbar is not optional: every
-    layout this function builds has one, so there is no call in which the
-    callback is unwanted.
-
-    Args:
-        with_reset: Include the job-reset confirmation modal and register its
-            callbacks. Opt-in, because an app that offers no reset action would
-            otherwise carry two callbacks that can never fire — the framework
-            must not put a feature into a consumer's process uninvited. An app
-            that opts in triggers the modal by writing
-            ``{"job_id": …, "action": "resubmit"|"reset"}`` into
-            RESET_JOB_STORE_SHARED_ID.
+    An app that needs more on the shell (a job-reset modal, say) appends it to
+    the returned div's ``children`` and wires it itself. Until v0.13.0 this
+    function took ``with_reset`` and mounted a reset modal bound to the
+    concrete ``Job``; only the example used it, so it moved there.
     """
     register_navbar_callbacks()
 
@@ -90,10 +49,6 @@ def app_layout(with_reset=False):
         dash.page_container,
         loading_overlay,
     ]
-
-    if with_reset:
-        register_reset_callbacks()
-        children += [reset_confirm_modal, dcc.Store(id=RESET_JOB_STORE_SHARED_ID)]
 
     return html.Div(
         className="d-flex flex-column min-vh-100 bg-light",
@@ -172,8 +127,7 @@ def create_navbar():
 
 
 # Dash raises DuplicateCallback if the same callback is registered twice, and an
-# app may call the registration from more than one place. Same guard as
-# `_reset_callbacks_registered` further down.
+# app may call the registration from more than one place.
 _navbar_callbacks_registered = False
 
 
@@ -266,12 +220,6 @@ def create_header(title, subtitle, bg_color="bg-info", id=None, rounded=True):
     return html.Div(className=className, children=children, **id_kwargs(""))
 
 
-def create_job_header(title, job):
-    """Create a header for job pages, colored by job status."""
-    bg_color = JOB_STATUS_COLORS[job.status]
-    return create_header(title, job.model.job_id, bg_color=bg_color)
-
-
 def job_not_found_layout(job_id):
     """Return header and body for a job that cannot be loaded."""
     header = create_header("Job not found", job_id, bg_color="bg-danger")
@@ -360,82 +308,3 @@ def page_container_column_layout(
     if wrapper_class is not None:
         return html.Div(page, className=wrapper_class)
     return page
-
-
-log = logging.getLogger(__name__)
-
-
-# Dash raises DuplicateCallback if the same callback is registered twice, and
-# `app.layout` may legitimately be a callable that Dash invokes per request.
-# Hence a registration guard rather than a plain call.
-_reset_callbacks_registered = False
-
-
-def register_reset_callbacks():
-    """Register the job-reset callbacks (idempotent).
-
-    Called by ``app_layout(with_reset=True)``; call it directly only when
-    building a layout by hand rather than through ``app_layout``.
-    """
-    global _reset_callbacks_registered
-    if _reset_callbacks_registered:
-        return
-    _reset_callbacks_registered = True
-
-    @callback(
-        Output(RESET_CONFIRM_MODAL_SHARED_ID, "is_open", allow_duplicate=True),
-        Output(RESET_BODY_DIV_SHARED_ID, "children"),
-        Input(RESET_JOB_STORE_SHARED_ID, "data"),
-        prevent_initial_call=True,
-    )
-    def open_reset_modal(store_data):
-        """Open the reset confirmation modal when the store receives data."""
-        if store_data is None:
-            return False, dash.no_update
-        if store_data["action"] == "resubmit":
-            msg = (
-                "This will reset the job to PENDING, delete all results, and resubmit."  # noqa
-            )
-        else:
-            msg = "This will reset the job to PENDING and delete all results."
-        return True, msg
-
-    @callback(
-        Output(RESET_CONFIRM_MODAL_SHARED_ID, "is_open", allow_duplicate=True),
-        Output(URL_LOCATION_SHARED_ID, "href", allow_duplicate=True),
-        Output(RESET_JOB_STORE_SHARED_ID, "data", allow_duplicate=True),
-        Output(LOADING_OVERLAY_MODAL_SHARED_ID, "is_open", allow_duplicate=True),
-        Input(RESET_CONFIRM_BUTTON_SHARED_ID, "n_clicks"),
-        Input(RESET_CANCEL_BUTTON_SHARED_ID, "n_clicks"),
-        State(RESET_JOB_STORE_SHARED_ID, "data"),
-        prevent_initial_call=True,
-    )
-    def handle_reset_confirm(confirm_clicks, cancel_clicks, store_data):
-        """Handle confirm/cancel on the reset modal."""
-        triggered_ids = {
-            t["prop_id"].split(".")[0]
-            for t in callback_context.triggered
-            if t["value"] is not None
-        }
-
-        if RESET_CANCEL_BUTTON_SHARED_ID in triggered_ids:
-            return False, dash.no_update, None, dash.no_update
-
-        if RESET_CONFIRM_BUTTON_SHARED_ID in triggered_ids:
-            job = Job(job_id=store_data["job_id"])
-            job.reset()
-
-            if store_data["action"] == "resubmit":
-                job.submit()
-                path = f"/job-submission/{job.job_id}"
-            else:
-                path = f"/input/{job.job_id}"
-
-            return False, path, None, False
-
-        return (
-            dash.no_update,
-            dash.no_update,
-            dash.no_update,
-            dash.no_update,
-        )

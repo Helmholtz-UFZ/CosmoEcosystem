@@ -10,6 +10,9 @@ Three of them, all covering things that fail without a word:
 - ``create_header``'s optional id. Both apps carried a local copy defaulting to
   ``id=""``, which stamped colliding ids on every header built without one.
 - the navbar callback, which used to register itself on import.
+
+Plus what left in v0.13.0: the job reset and ``create_job_header``, the two
+pieces bound to the concrete ``Job``.
 """
 
 import ast
@@ -19,7 +22,7 @@ import dash
 import pytest
 from dash import html
 
-from cosmo_ecosystem import layouts
+from cosmo_ecosystem import constants, layouts
 from cosmo_ecosystem.constants import NAVBAR_COLLAPSE_DIV_SHARED_ID
 
 
@@ -191,8 +194,7 @@ def test_register_navbar_callbacks_is_idempotent(clean_navbar_registration):
     """A second call is a no-op, not a DuplicateCallback.
 
     An app may reach the registration from more than one place — through
-    ``app_layout`` and directly, say — which is the same reason
-    ``register_reset_callbacks`` carries a guard.
+    ``app_layout`` and directly, say.
     """
     layouts.register_navbar_callbacks()
     layouts.register_navbar_callbacks()
@@ -221,10 +223,10 @@ def test_app_layout_registers_the_navbar_callback(
 
     Co-location, not a hidden side effect: the defect this batch fixed was an
     *import* registering a callback, not a function registering the callback for
-    the component it unconditionally mounts. Unlike ``with_reset``, the navbar is
-    not optional — every layout this builds has one — so there is no call in
-    which the registration is unwanted, and no consumer of ``app_layout`` can
-    lose its toggle by re-pinning without noticing.
+    the component it unconditionally mounts. The navbar is not optional —
+    every layout this builds has one — so there is no call in which the
+    registration is unwanted, and no consumer of ``app_layout`` can lose its
+    toggle by re-pinning without noticing.
     """
     assert clean_navbar_registration not in dash._callback.GLOBAL_CALLBACK_MAP
 
@@ -241,3 +243,33 @@ def test_app_layout_twice_does_not_duplicate_the_callback(
     layouts.app_layout()
 
     assert clean_navbar_registration in dash._callback.GLOBAL_CALLBACK_MAP
+
+
+def test_layouts_does_not_import_the_concrete_job():
+    """Job reset and the job header moved to the example; nothing here needs ``Job``.
+
+    The framework must stay bindable to any ``BaseJob``: a ``Job`` import in
+    ``layouts`` drags the concrete class into every app that imports a page.
+    """
+    tree = ast.parse(Path(layouts.__file__).read_text())
+
+    job_imports = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom) and node.module == "cosmo_ecosystem.job"
+    ]
+
+    assert job_imports == []
+
+
+def test_app_layout_has_no_reset_option(stub_navbar, clean_navbar_registration):
+    """``with_reset`` is gone (v0.13.0); an app mounts its own reset, if any."""
+    with pytest.raises(TypeError):
+        layouts.app_layout(with_reset=True)
+
+
+def test_framework_ships_no_reset_ids():
+    """The ``RESET_*`` ids belong to the app that mounts the reset modal."""
+    from_constants = [name for name in dir(constants) if name.startswith("RESET_")]
+
+    assert from_constants == []

@@ -20,7 +20,6 @@ from cosmo_ecosystem.error_handling import InvalidJobID, JobNotFound
 from cosmo_ecosystem.files_route import create_download_button
 from cosmo_ecosystem.job import Job
 from cosmo_ecosystem.layouts import (
-    create_job_header,
     job_not_found_layout,
     landing_page_layout_column,
 )
@@ -32,6 +31,7 @@ from csv_profiler.constants import (
     MAIN_CONTENT_DIV_RESULTS_ID,
     SUMMARY_TABLE_RESULTS_ID,
 )
+from csv_profiler.layouts import create_job_header
 
 log = logging.getLogger(__name__)
 

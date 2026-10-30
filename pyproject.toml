@@ -1,6 +1,6 @@
 [project]
 name = "cosmo-ecosystem"
-version = "0.12.0"
+version = "0.13.0"
 description = "Cosmo Ecosystem: the shared Dash + Celery + PostgreSQL + S3 application framework behind COSMOPOLITAN and COSMONAUT"
 authors = [{ name = "John Anders", email = "john-eric.anders@ufz.de" }]
 readme = "README.md"

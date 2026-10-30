@@ -39,6 +39,11 @@ zero or more runs; resetting or changing its input and submitting again starts a
 new one.
 _Avoid_: Execution, attempt, task
 
+**Job reset**:
+Returning a job to PENDING, discarding its results and job log but keeping its
+input. Submitting it again starts a new job run.
+_Avoid_: Restart, rerun
+
 **Job log**:
 The log records written during a job's latest job run, kept with the job and
 readable while the run is still going. A new run starts an empty job log.
