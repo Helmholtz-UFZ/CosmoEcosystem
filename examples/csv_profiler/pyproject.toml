@@ -15,7 +15,7 @@ dependencies = [
 # In this monorepo the framework is resolved from the local path (editable) so the
 # example runs against the working tree. A real downstream app would instead pin a
 # git tag, e.g.:
-#   [project.dependencies] "cosmo-ecosystem @ git+https://codebase.helmholtz.cloud/.../cosmo-ecosystem@v0.12.0"
+#   [project.dependencies] "cosmo-ecosystem @ git+https://codebase.helmholtz.cloud/.../cosmo-ecosystem@v0.13.0"
 # See the README (--local-core dev loop + tagged-release note).
 [tool.uv.sources]
 cosmo-ecosystem = { path = "../..", editable = true }
