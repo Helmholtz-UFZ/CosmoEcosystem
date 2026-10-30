@@ -7,7 +7,12 @@ ever being named. The protocol is explicit now.
 
 import pytest
 
-from csv_profiler.job_reset import reset_job, reset_message
+from csv_profiler.job_reset import (
+    CHANGE_INPUT_ACTION,
+    RESUBMIT_ACTION,
+    reset_job,
+    reset_message,
+)
 
 
 def test_unknown_action_is_not_reset():
@@ -22,7 +27,7 @@ def test_unknown_action_gets_no_confirmation_text():
         reset_message("reset")
 
 
-@pytest.mark.parametrize("action", ["resubmit", "change_input"])
+@pytest.mark.parametrize("action", [RESUBMIT_ACTION, CHANGE_INPUT_ACTION])
 def test_known_actions_have_a_confirmation_text(action):
     """Both actions say that results are deleted before the user confirms."""
     assert "delete all results" in reset_message(action)

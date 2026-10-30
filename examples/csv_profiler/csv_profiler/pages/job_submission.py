@@ -40,6 +40,7 @@ from csv_profiler.constants import (
     VIEW_RESULTS_BUTTON_JOB_SUBMISSION_ID,
 )
 from csv_profiler.forms import form_layout_template
+from csv_profiler.job_reset import CHANGE_INPUT_ACTION, RESUBMIT_ACTION
 from csv_profiler.layouts import create_job_header
 
 log = logging.getLogger(__name__)
@@ -320,7 +321,7 @@ def submission_manager(
         return tuple(
             [dash.no_update, False]
             + [dash.no_update] * (num_outputs - 3)
-            + [{"job_id": job.job_id, "action": "resubmit"}]
+            + [{"job_id": job.job_id, "action": RESUBMIT_ACTION}]
         )
     elif CHANGE_INPUT_BUTTON_JOB_SUBMISSION_ID in triggered_ids:
         if job.status == "PENDING":
@@ -331,7 +332,7 @@ def submission_manager(
         return tuple(
             [dash.no_update, False]
             + [dash.no_update] * (num_outputs - 3)
-            + [{"job_id": job.job_id, "action": "change_input"}]
+            + [{"job_id": job.job_id, "action": CHANGE_INPUT_ACTION}]
         )
     elif VIEW_RESULTS_BUTTON_JOB_SUBMISSION_ID in triggered_ids:
         results_base = dash.page_registry["pages.results"]["path_template"]

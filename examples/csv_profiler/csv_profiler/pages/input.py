@@ -38,6 +38,7 @@ from csv_profiler.constants import (
     UPLOADED_FILE_NAME_STORE_INPUT_ID,
 )
 from csv_profiler.forms import form_factory, form_layout_template
+from csv_profiler.job_reset import CHANGE_INPUT_ACTION
 from csv_profiler.layouts import create_job_header
 
 log = logging.getLogger(__name__)
@@ -335,4 +336,4 @@ def check_input(**inputs):
 )
 def trigger_reset_from_input(n_clicks, job_id):
     """Write to the shared reset store to trigger the confirmation modal."""
-    return {"job_id": job_id, "action": "change_input"}
+    return {"job_id": job_id, "action": CHANGE_INPUT_ACTION}
