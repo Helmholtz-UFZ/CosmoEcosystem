@@ -28,6 +28,11 @@ device-specific.
 - **Merge order: framework release first, then the apps.** An app merge request is opened
   against the overlay but lands only after its pin is bumped to the released tag, because
   CI has no overlay.
+- **An app MR is green when its merge request pipeline is green.** Check the pipeline on
+  `refs/merge-requests/<iid>/head`, not the one on the branch: COSMONAUT runs
+  `test-integration` only on `main` and in merge request pipelines, so the branch
+  pipeline stays green without the tests that start a Celery worker
+  (`glab api "projects/:id/merge_requests/<iid>/pipelines"`).
 - **Re-pin only after the tag is on the GitHub mirror.** The apps pin
   `git+https://github.com/Helmholtz-UFZ/CosmoEcosystem@vX.Y.Z`, and GitLab's push mirror
   can lag behind the tag push. `uv lock` fails until

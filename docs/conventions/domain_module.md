@@ -11,6 +11,12 @@ circular import that points away from the cause.
 - **`COSMO_DOMAIN` is set in every process:** web, worker and CLI. Set it with `ENV`
   in every Dockerfile of the app and in its env and compose files. Unset, the first
   Celery access raises `DomainNotConfigured`.
+- **The app package is importable in every process without help from the cwd.**
+  Install it (`uv sync` does) or put the repo root on `PYTHONPATH`, as the worker
+  images do. `celery -A` adds the cwd to `sys.path` only while it imports the `-A`
+  module, `cosmo_ecosystem.celery_app`; the domain module is imported lazily after
+  that. A CI image that installs only the dependencies fails at worker start with
+  `ModuleNotFoundError: <app>`. The old `-A <app>.celery_app` hid this.
 - **The domain module exposes exactly these attributes:**
   - `task_specs`: a list of `TaskSpec`, the app's own tasks only. The framework adds
     its cleanup and test task.
