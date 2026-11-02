@@ -34,7 +34,7 @@ log = logging.getLogger(__name__)
 
 
 def _submit(job_id, input_data=None):
-    """Create job_id as submitted: its CSV in the remote prefix, its row PENDING."""
+    """Create job_id as submitted: its CSV in the remote prefix, its run queued."""
     if input_data is None:
         input_data = ProfileConfig(
             job_id=job_id, upload_file_name=CSV_NAME
@@ -55,6 +55,7 @@ def _submit(job_id, input_data=None):
             "version": "0.1.0",
         }
     )
+    job_run.mark_queued(job_id)
 
 
 def _set_heartbeat(job_id, age):
@@ -173,16 +174,16 @@ def test_a_job_whose_input_cannot_be_loaded_ends_failed_with_the_reason():
         _cleanup(job_id)
 
 
-def test_a_job_without_a_row_ends_failed_and_no_row_appears():
-    """A task for a job deleted meanwhile fails quietly instead of resurrecting it."""
+def test_a_job_without_a_row_is_dropped_and_no_row_appears():
+    """A task for a job deleted meanwhile is dropped instead of resurrecting it."""
     job_id = "test_job_run_no_row"
 
     try:
         status = job_run.run(job_id, _failing_compute)
 
-        assert status == "FAILED"
+        assert status is None
         assert not DbManager.check_existence(job_id)
-        assert "JobNotFound" in job_log.read(job_id)
+        assert job_log.read(job_id) == ""
     finally:
         _cleanup(job_id)
 
@@ -226,6 +227,7 @@ def test_a_new_run_starts_with_an_empty_job_log():
 
     try:
         job_run.run(job_id, computing("first run"))
+        job_run.mark_queued(job_id)
         job_run.run(job_id, computing("second run"))
 
         content = job_log.read(job_id)
@@ -262,6 +264,7 @@ def test_no_job_log_handler_is_left_on_the_root_logger():
     try:
         job_run.run(job_id, lambda job_id, work_dir: None)
         after_success = _job_log_handlers()
+        job_run.mark_queued(job_id)
         job_run.run(job_id, _failing_compute)
         after_failure = _job_log_handlers()
 
@@ -405,5 +408,85 @@ def test_mark_queued_makes_the_row_running_with_no_heartbeat():
 
         row = load_row(job_id)
         assert (row["status"], row["heartbeat_at"]) == ("RUNNING", None)
+    finally:
+        _cleanup(job_id)
+
+
+def test_a_second_delivery_of_a_live_run_is_dropped():
+    """Two deliveries of one message never compute the same job twice."""
+    job_id = "test_job_run_claimed_once"
+    _submit(job_id)
+    second_delivery = []
+
+    def compute_while_delivered_again(job_id, work_dir):
+        """Receive the same job again while this run computes."""
+        second_delivery.append(job_run.run(job_id, _failing_compute))
+
+    try:
+        status = job_run.run(job_id, compute_while_delivered_again)
+
+        assert (status, second_delivery) == ("COMPLETED", [None])
+        assert load_row(job_id)["status"] == "COMPLETED"
+    finally:
+        _cleanup(job_id)
+
+
+def test_a_won_claim_gives_the_row_a_heartbeat():
+    """From its first write on, a run is told apart from a queued one."""
+    job_id = "test_job_run_claim_beats"
+    _submit(job_id)
+    heartbeat_during_run = []
+
+    def compute(job_id, work_dir):
+        heartbeat_during_run.append(load_row(job_id)["heartbeat_at"])
+
+    try:
+        job_run.run(job_id, compute)
+
+        assert heartbeat_during_run[0] is not None
+    finally:
+        _cleanup(job_id)
+
+
+def _row_and_log(job_id):
+    """Return the job's status, heartbeat and job log, the state a drop must keep."""
+    row = load_row(job_id)
+    return row["status"], row["heartbeat_at"], job_log.read(job_id)
+
+
+def test_a_redelivery_of_a_run_with_a_heartbeat_changes_nothing(caplog):
+    """A message redelivered after its worker died does not restart the run."""
+    job_id = "test_job_run_redelivered"
+    _submit(job_id)
+    _set_heartbeat(job_id, "11 minutes")
+    job_log.append(job_id, "the lost run's last words")
+    before = _row_and_log(job_id)
+
+    with caplog.at_level(logging.INFO, logger="cosmo_ecosystem.job_run"):
+        status = job_run.run(job_id, _failing_compute)
+
+    try:
+        assert status is None
+        assert _row_and_log(job_id) == before
+        drops = [r for r in caplog.records if r.name == "cosmo_ecosystem.job_run"]
+        assert len(drops) == 1
+        assert job_id in drops[0].getMessage()
+        assert _job_log_handlers() == []
+    finally:
+        _cleanup(job_id)
+
+
+@pytest.mark.parametrize("status", ["PENDING", "COMPLETED", "FAILED"])
+def test_a_delivery_for_a_row_that_is_not_running_changes_nothing(status):
+    """A stale message after a reset, or one for a cancelled job, is dropped."""
+    job_id = "test_job_run_not_running"
+    _submit(job_id)
+    job_persistence.update_columns(job_id, {"status": status})
+    job_log.append(job_id, "cancelled by user")
+    before = _row_and_log(job_id)
+
+    try:
+        assert job_run.run(job_id, _failing_compute) is None
+        assert _row_and_log(job_id) == before
     finally:
         _cleanup(job_id)

@@ -15,6 +15,7 @@ from sqlalchemy import (
     String,
     Text,
     create_engine,
+    func,
     update,
 )
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
@@ -333,6 +334,26 @@ class DbManager:
             )
             if result.rowcount == 0:
                 raise JobNotFound(job_id)
+
+    @classmethod
+    def claim_run(cls, job_id) -> bool:
+        """Give a queued run's row its first heartbeat; return whether it was queued.
+
+        One conditional update (``status = 'RUNNING' AND heartbeat_at IS NULL``),
+        so of any number of concurrent callers at most one gets True.
+        """
+        job_table = cls._job_table()
+        with cls.session_scope() as session:
+            result = session.execute(
+                update(job_table)
+                .where(
+                    job_table.job_id == job_id,
+                    job_table.status == "RUNNING",
+                    job_table.heartbeat_at.is_(None),
+                )
+                .values(heartbeat_at=func.now())
+            )
+            return result.rowcount == 1
 
     @classmethod
     def get_job_columns(cls, job_id):

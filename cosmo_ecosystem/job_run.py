@@ -36,21 +36,28 @@ def run(
     job_id: str,
     compute: Callable[[str, str], None],
     excluded_packages=(),
-) -> str:
+) -> str | None:
     """Run compute for the job and return the final status the row now holds.
 
-    Clears the job log and captures every record logged during the run into
-    it, writes RUNNING, fetches the work dir, calls
-    ``compute(job_id, work_dir)``, uploads the work dir and writes COMPLETED,
-    the row last. ``compute`` loads the app's own job, computes, writes its
-    outputs into the work dir, signals failure only by raising, and never
-    writes the status itself.
+    First claims the run: the row must be queued (RUNNING, no heartbeat, see
+    ``mark_queued``), and the claim gives it its first heartbeat. A delivery
+    that loses the claim (a redelivery of a live or lost run, a stale message
+    after a reset, a message for a cancelled or deleted job) writes nothing,
+    neither to the row nor to the job log, says so in one line of the worker
+    log and returns ``None``; the caller skips its post-run work then.
+
+    A won claim clears the job log and captures every record logged during the
+    run into it, fetches the work dir, calls ``compute(job_id, work_dir)``,
+    uploads the work dir and writes COMPLETED, the row last. ``compute`` loads
+    the app's own job, computes, writes its outputs into the work dir, signals
+    failure only by raising, and never writes the status itself.
 
     Any exception, clearing the job log included, ends the run as FAILED,
     logged with its traceback to the job log and the worker log; nothing is
-    raised. The job log is flushed before the final status is written. A job
-    without a row returns FAILED and writes nothing; if the FAILED write
-    itself fails, the run says so in the worker log and returns FAILED. A
+    raised. The job log is flushed before the final status is written. If the
+    claim itself fails (database down), the run tries to write FAILED; if the
+    FAILED write fails too, the run says so in the worker log and returns
+    FAILED. A
     failed upload ends FAILED, so COMPLETED never names files the remote
     prefix lacks.
 
@@ -67,9 +74,17 @@ def run(
     root_level = root.level
     handler = None
     try:
+        # The first write, before the job log is cleared: a lost claim must
+        # not clear the job log of a live or lost run.
+        if not DbManager.claim_run(job_id):
+            log.warning(
+                f"Drop this delivery of job {job_id}: its row is not a queued "
+                "run (already claimed, reset, cancelled or deleted)."
+            )
+            return None
         # Inside the guard: if the database fails even here, the run still
-        # ends FAILED. The handler goes on before the RUNNING write, the load
-        # and the computation, so their failures land in the job log.
+        # ends FAILED. The handler goes on before the load and the
+        # computation, so their failures land in the job log.
         job_log.clear(job_id)
         handler = JobLogHandler(job_id, excluded_packages=excluded_packages)
         # The handler sees only what the root level lets through. The worker's
@@ -77,7 +92,6 @@ def run(
         root.setLevel(min(root_level, logging.DEBUG))
         root.addHandler(handler)
         log.info(f"Start the job run of job {job_id}.")
-        job_persistence.update_columns(job_id, {"status": "RUNNING"})
         work_dir = job_persistence.work_dir(job_id)
         compute(job_id, work_dir)
         job_persistence.upload_work_dir(job_id)
