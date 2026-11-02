@@ -9,25 +9,10 @@ CLI reach the same app: the worker as
 process through ``background_job_manager``, which wraps this app.
 
 The app is assembled on first access to ``celery``, never at import, from the
-module that the environment variable ``COSMO_DOMAIN`` names (a dotted module
-path, ``<app>.domain`` by convention). That **domain module** exposes:
-
-- ``task_specs``: list of ``TaskSpec``, the app's tasks (the framework adds its
-  own cleanup and test task);
-- ``celery_config``: a ``BaseCeleryConfig`` subclass holding domain settings
-  only (timezone, time limits). It must not set ``task_routes`` or
-  ``beat_schedule``: both are derived from the task specs;
-- ``excluded_log_packages``: tuple of package names muted in worker logging
-  (assembly connects ``worker_process_init`` for it; no framework import
-  connects a signal);
-- ``log_retention_days``: int, how long the framework cleanup keeps log rows.
-
-Importing the domain module also wires the app's Job seams and
-``DbManager.job_table``. It must not touch ``celery`` or the manager singleton
-at import: assembly imports it, so that access would run while the domain
-module is still half-initialised.
-
-See docs/adr/0003-framework-assembles-the-celery-app.md.
+domain module that the environment variable ``COSMO_DOMAIN`` names. Its contract
+(attributes, import rules, failure modes) is written once, in
+docs/conventions/domain_module.md; see also
+docs/adr/0003-framework-assembles-the-celery-app.md.
 """
 
 from logging.config import dictConfig
