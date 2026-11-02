@@ -2,9 +2,10 @@
 # required services and then run the tests.
 #
 # Ports follow the suite-wide local allocation (csv_profiler slot: 8082 / 5434 / 6381 /
-# 9020 / 9021) so this suite can run at the same time as cosmopolitan's and cosmonaut's
-# — see cosmo-ecosystem/docs/plan/local-port-allocation.md. Only this file and env_dev carry
-# the shifted values; env_ci keeps the defaults.
+# 9020 / 9021) — see cosmo-ecosystem/docs/plan/local-port-allocation.md. Only this file
+# and env_dev carry the shifted values; env_ci keeps the defaults. A normal
+# run_pytest.sh run overrides the ports with free ones it picks at start (one stack
+# per worktree); these values apply to --no-services runs.
 #
 # The suite runs on the host, not in the compose network, so here the app-facing ports
 # (POSTGRES_PORT, REDIS_PORT, OBJECT_STORAGE_HOST) must match the *published* host ports

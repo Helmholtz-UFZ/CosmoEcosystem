@@ -4,13 +4,18 @@ set -e
 
 START_SERVICES=1
 
-# The test stack is its own compose project with its own container names, so it can
-# never collide with (or tear down) the dev stack from docker-compose.yml, which
-# uses the plain names postgres_cosmo_ecosystem etc.
-TEST_PROJECT="cosmo_ecosystem_test"
-TEST_POSTGRES="postgres_cosmo_ecosystem_test"
-TEST_OBJECT_STORAGE="object_storage_cosmo_ecosystem_test"
-TEST_REDIS="redis_cosmo_ecosystem_test"
+# Every worktree gets its own test stack, so several worktrees (and the sister repos)
+# can run their suites at the same time. The compose project, and with it the
+# container names and volumes, carries a short hash of this directory's absolute
+# path: stable for one worktree, so a rerun finds and clears a crashed run's
+# leftovers, and different for every other worktree, so a run only ever stops what
+# it started. The dev stack from docker-compose.yml (postgres_cosmo_ecosystem etc.)
+# is a different project and is never touched.
+STACK_ID=$(pwd -P | sha256sum | cut -c1-8)
+TEST_PROJECT="cosmo_ecosystem_test_${STACK_ID}"
+TEST_POSTGRES="postgres_${TEST_PROJECT}"
+TEST_OBJECT_STORAGE="object_storage_${TEST_PROJECT}"
+TEST_REDIS="redis_${TEST_PROJECT}"
 test_compose() {
     docker compose --project-directory . -p "$TEST_PROJECT" -f docker-compose.yml -f "$OVERRIDE_FILE" "$@"
 }
@@ -57,9 +62,10 @@ show_help() {
     echo ""
     echo "This script manages the test environment: backs up .env, starts Docker"
     echo "services, runs pytest, then restores .env and stops services on exit."
-    echo "The services run as compose project ${TEST_PROJECT} with containers"
-    echo "${TEST_POSTGRES}, ${TEST_OBJECT_STORAGE}, ${TEST_REDIS};"
-    echo "the dev stack's containers are never touched."
+    echo "The services run as compose project ${TEST_PROJECT} (one per worktree)"
+    echo "on free host ports picked at start, so worktrees can run their suites in"
+    echo "parallel; the dev stack's containers are never touched."
+    echo "With --no-services the ports from env_test apply."
     echo ""
     echo "Options:"
     echo "  --headed          Run browser tests with visible browser (for debugging)"
@@ -145,10 +151,48 @@ fi
 # Use test environment configuration
 cp env_test .env
 
-# Source for environment variables
-source .env
-
 if [ "$START_SERVICES" -eq 1 ]; then
+    # Ask the OS for free host ports instead of using env_test's fixed slot, which
+    # another worktree's test stack may hold. All five sockets are open at once, so
+    # the ports are distinct. Between closing them here and compose binding them
+    # another process could take one; that race is accepted, compose then fails
+    # loudly with "port is already allocated".
+    read -r FLASK POSTGRES REDIS OBJECT_STORAGE OBJECT_STORAGE_CONSOLE < <(python3 -c '
+import socket
+socks = [socket.socket() for _ in range(5)]
+# "" = all interfaces, as compose publishes (0.0.0.0): a port that is free only on
+# loopback would still collide there.
+for s in socks:
+    s.bind(("", 0))
+print(*(s.getsockname()[1] for s in socks))
+') || {
+        # read sees EOF when python3 fails; without this set -e exits silently.
+        echo "FAIL: could not pick free ports"
+        exit 1
+    }
+    # Appended, so these win over env_test's values in the same file (python-dotenv
+    # and compose both take the last assignment of a key). The suite runs on the
+    # host, so the app-facing port and the published host port are the same number.
+    # FLASK_PORT is where the e2e Dash server binds.
+    cat >>.env <<EOF
+
+### Per-run ports, written by run_pytest.sh ###
+FLASK_PORT=${FLASK}
+FLASK_HOST_PORT=${FLASK}
+WEB_OUTSIDE_URL="http://localhost:${FLASK}"
+POSTGRES_PORT="${POSTGRES}"
+POSTGRES_HOST_PORT=${POSTGRES}
+REDIS_PORT="${REDIS}"
+REDIS_HOST_PORT=${REDIS}
+OBJECT_STORAGE_HOST="http://localhost:${OBJECT_STORAGE}"
+OBJECT_STORAGE_HOST_PORT=${OBJECT_STORAGE}
+OBJECT_STORAGE_CONSOLE_HOST_PORT=${OBJECT_STORAGE_CONSOLE}
+EOF
+    # check_parallel_runs.sh parses this line to find the run's project: keep the format.
+    echo "Compose project: ${TEST_PROJECT}"
+    echo "Ports: flask ${FLASK}, postgres ${POSTGRES}, redis ${REDIS}," \
+        "object storage ${OBJECT_STORAGE} (console ${OBJECT_STORAGE_CONSOLE})"
+
     # Clear leftovers of a crashed earlier test run (test project only)
     test_compose down -v 2>/dev/null || true
 

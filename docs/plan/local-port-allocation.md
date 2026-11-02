@@ -16,6 +16,12 @@ repo-übergreifend und darf nur **eine** Quelle haben)
 > env-Datei dieselben aufgelösten Mappings wie vorher. In cosmonaut (`network_mode:
 > host`) müssen `POSTGRES_HOST_PORT` / `REDIS_HOST_PORT` gleich `POSTGRES_PORT` /
 > `REDIS_PORT` sein.
+>
+> **Nachtrag 2026-10-30:** Die Zuteilung gilt nur noch für **Dev-Stacks** (`dev_up.sh`,
+> `env_dev`) und für `run_pytest.sh --no-services`. Ein normaler Testlauf startet seinen
+> Stack pro Worktree als eigenes Compose-Projekt auf freien Ports, die das Skript beim
+> Start wählt; `env_test` behält die Slot-Werte nur als Default. Siehe
+> [`testing.md`](../conventions/testing.md#one-test-stack-per-worktree).
 
 ---
 
