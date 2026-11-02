@@ -28,8 +28,6 @@ from cosmo_ecosystem.object_storage_manager import (
 )
 
 FILE_NAME = "result.csv"
-# The csv_profiler module that assigns DbManager.job_table on import.
-APP_JOB_TABLE_MODULE = "csv_profiler.domain"
 CONTENT = "col_a,col_b\n1,2\n"
 
 
@@ -459,7 +457,7 @@ def test_orphan_report_lists_rowless_prefixes_and_changes_nothing(capsys):
     before = _bucket_contents()
 
     try:
-        job_retention.main([APP_JOB_TABLE_MODULE])
+        job_retention.main()
 
         # Whole lines, so a word of the banner can never pass for a prefix.
         listed = capsys.readouterr().out.splitlines()
@@ -473,19 +471,23 @@ def test_orphan_report_lists_rowless_prefixes_and_changes_nothing(capsys):
 
 def test_orphan_report_warns_that_a_shared_bucket_has_other_owners(capsys):
     """On a shared bucket a listed prefix may be the other database's job."""
-    job_retention.main([APP_JOB_TABLE_MODULE])
+    job_retention.main()
 
     out = capsys.readouterr().out
     assert "Nothing was deleted" in out
     assert "may belong to that database" in out
 
 
-def test_orphan_report_without_the_app_module_prints_usage(capsys):
-    """Without the module the report cannot know the job table, so it stops."""
-    with pytest.raises(SystemExit):
-        job_retention.main([])
+def test_orphan_report_without_cosmo_domain_names_the_variable(monkeypatch, capsys):
+    """Without the domain the report cannot know the job table, so it stops."""
+    monkeypatch.delenv("COSMO_DOMAIN")
 
-    assert "Usage" in capsys.readouterr().out
+    with pytest.raises(SystemExit):
+        job_retention.main()
+
+    out = capsys.readouterr().out
+    assert "COSMO_DOMAIN" in out
+    assert "Usage" in out
 
 
 def test_orphan_report_names_a_missing_bucket_instead_of_crashing(monkeypatch, capsys):
@@ -495,7 +497,7 @@ def test_orphan_report_names_a_missing_bucket_instead_of_crashing(monkeypatch, c
         monkeypatch.setattr(module, "OBJECT_STORAGE_BUCKET", "no-such-bucket")
 
     with pytest.raises(SystemExit):
-        job_retention.main([APP_JOB_TABLE_MODULE])
+        job_retention.main()
 
     assert "no-such-bucket" in capsys.readouterr().out
     assert not object_storage_manager.bucket_exists()
