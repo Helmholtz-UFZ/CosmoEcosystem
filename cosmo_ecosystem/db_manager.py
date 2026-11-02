@@ -367,6 +367,28 @@ class DbManager:
             )
 
     @classmethod
+    def fail_runs_without_heartbeat_since(cls, threshold):
+        """Write FAILED to every RUNNING row whose heartbeat is older than threshold.
+
+        One update; a queued row (no heartbeat) is never touched.
+
+        Returns:
+            ``(job_id, heartbeat_at)`` of every row it failed.
+        """
+        job_table = cls._job_table()
+        with cls.session_scope() as session:
+            result = session.execute(
+                update(job_table)
+                .where(
+                    job_table.status == "RUNNING",
+                    job_table.heartbeat_at < func.now() - threshold,
+                )
+                .values(status="FAILED")
+                .returning(job_table.job_id, job_table.heartbeat_at)
+            )
+            return [(row.job_id, row.heartbeat_at) for row in result]
+
+    @classmethod
     def get_job_columns(cls, job_id):
         """Retrieve all columns of a specific job entry based on its job ID."""
         log.debug(f"Get columns for job: {job_id}")
