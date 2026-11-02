@@ -7,8 +7,10 @@ recommended starting point for a new Cosmo Ecosystem app ("copy this directory")
 
 ## How it plugs into the framework
 
-The framework `Job` is generic; this app injects the domain at startup (in both
-`csv_profiler/app.py` and `csv_profiler/celery_app.py`):
+The framework `Job` and Celery app are generic; this app declares its domain in
+one **domain module**, `csv_profiler/domain.py`, which the environment variable
+`COSMO_DOMAIN=csv_profiler.domain` names in every process. Importing it injects the
+domain into the `Job`:
 
 ```python
 Job.config_model   = ProfileConfig                        # an UploadJobConfig subclass
@@ -16,10 +18,16 @@ Job.file_validator = staticmethod(validate_csv)
 Job.submit_handler = staticmethod(submit_computation_job)
 ```
 
+and its `task_specs`, `celery_config`, `excluded_log_packages` and
+`log_retention_days` are what the framework assembles the one Celery app of the
+process from. The worker runs the framework's app,
+`celery -A cosmo_ecosystem.celery_app.celery worker --beat`, without `--queues`.
+See [ADR 0003](../../docs/adr/0003-framework-assembles-the-celery-app.md).
+
 It provides the domain pieces — `ProfileConfig`, the CSV `computation_module`, the
-`forms`, the workflow pages (home / input / results / job_submission), and the
-Celery worker entry — while the framework provides the app shell and the infra/ops
-pages (logs, job management, worker management). See
+`forms`, the workflow pages (home / input / results / job_submission), and its
+computation task with its submission — while the framework provides the app shell,
+the Celery app and the infra/ops pages (logs, job management, worker management). See
 [`docs/conventions/config_model_contract.md`](../../docs/conventions/config_model_contract.md).
 
 ## Framework dependency

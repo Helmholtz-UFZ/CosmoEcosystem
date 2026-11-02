@@ -40,7 +40,7 @@ from csv_profiler.db_manager import JobTable
 
 # Every test module in this suite imports DbManager directly (test_db_manager.py)
 # or transitively through cosmo_ecosystem.job (test_e2e.py's dash_app fixture), so
-# this has to be set once here, before collection, same as the seams in app.py.
+# this has to be set once here, before collection, same as csv_profiler.domain does.
 DbManager.job_table = JobTable
 
 
@@ -265,7 +265,9 @@ def celery_worker(request):
     """Start a Celery worker for testing job processing.
 
     Spawns a Celery worker subprocess that:
-    - Listens to computation, maintenance, and celery queues
+    - Runs the framework's app, assembled from COSMO_DOMAIN, like the worker image
+    - Has no --queues, like the worker image: it consumes every queue a task
+      spec routes to
     - Uses concurrency=1 for deterministic testing
     - Uses prefork pool for proper task termination
     - Enables task events for inspect() API functionality
@@ -293,12 +295,11 @@ def celery_worker(request):
             "run",
             "celery",
             "-A",
-            "csv_profiler.celery_app.celery",
+            "cosmo_ecosystem.celery_app.celery",
             "worker",
             "--loglevel=debug",
             "--concurrency=1",
             "--pool=prefork",
-            "--queues=computation,maintenance,celery",
             "--hostname=worker@test",
             "-E",
         ],

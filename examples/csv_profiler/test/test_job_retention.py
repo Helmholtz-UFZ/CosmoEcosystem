@@ -27,7 +27,7 @@ from cosmo_ecosystem.object_storage_manager import (
 
 FILE_NAME = "result.csv"
 # The csv_profiler module that assigns DbManager.job_table on import.
-APP_JOB_TABLE_MODULE = "csv_profiler.celery_app"
+APP_JOB_TABLE_MODULE = "csv_profiler.domain"
 CONTENT = "col_a,col_b\n1,2\n"
 
 
