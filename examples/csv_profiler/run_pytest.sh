@@ -160,10 +160,16 @@ if [ "$START_SERVICES" -eq 1 ]; then
     read -r FLASK POSTGRES REDIS OBJECT_STORAGE OBJECT_STORAGE_CONSOLE < <(python3 -c '
 import socket
 socks = [socket.socket() for _ in range(5)]
+# "" = all interfaces, as compose publishes (0.0.0.0): a port that is free only on
+# loopback would still collide there.
 for s in socks:
-    s.bind(("localhost", 0))
+    s.bind(("", 0))
 print(*(s.getsockname()[1] for s in socks))
-')
+') || {
+        # read sees EOF when python3 fails; without this set -e exits silently.
+        echo "FAIL: could not pick free ports"
+        exit 1
+    }
     # Appended, so these win over env_test's values in the same file (python-dotenv
     # and compose both take the last assignment of a key). The suite runs on the
     # host, so the app-facing port and the published host port are the same number.
@@ -182,6 +188,7 @@ OBJECT_STORAGE_HOST="http://localhost:${OBJECT_STORAGE}"
 OBJECT_STORAGE_HOST_PORT=${OBJECT_STORAGE}
 OBJECT_STORAGE_CONSOLE_HOST_PORT=${OBJECT_STORAGE_CONSOLE}
 EOF
+    # check_parallel_runs.sh parses this line to find the run's project: keep the format.
     echo "Compose project: ${TEST_PROJECT}"
     echo "Ports: flask ${FLASK}, postgres ${POSTGRES}, redis ${REDIS}," \
         "object storage ${OBJECT_STORAGE} (console ${OBJECT_STORAGE_CONSOLE})"

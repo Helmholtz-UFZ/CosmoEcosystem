@@ -65,7 +65,8 @@ repo and of the two apps) can run their suites at the same time:
 
 - **Compose project from the worktree.** The project is
   `cosmo_ecosystem_test_<hash>`, where `<hash>` is the first 8 hex digits of the
-  sha256 of the worktree's absolute path. Containers are named
+  sha256 of `pwd -P` in `examples/csv_profiler/` (that directory's absolute path in
+  this worktree). Containers are named
   `postgres_<project>`, `object_storage_<project>` and `redis_<project>` (injected by
   a temporary override file); volumes carry the project prefix. The same worktree
   always gets the same name, so the `down -v` at the start of a run clears what a

@@ -29,7 +29,14 @@ MAIN_CLONE=$(dirname "$(git -C "$HERE" rev-parse --path-format=absolute --git-co
 PROBE="${MAIN_CLONE}.wt/parallel-check-probe"
 LOG_DIR=$(mktemp -d)
 
+declare -A PIDS
 remove_probe() {
+    # On an abort (Ctrl-C) the two runs are still going: stop them first, so their
+    # own EXIT trap removes their stacks before the probe worktree disappears.
+    for pid in "${PIDS[@]}"; do
+        pkill -TERM -P "$pid" 2>/dev/null
+    done
+    wait
     git -C "$REPO_ROOT" worktree remove --force "$PROBE" 2>/dev/null || true
 }
 trap remove_probe EXIT
@@ -45,22 +52,21 @@ done
 
 echo "Running '$SUBSET' in two worktrees at once (logs: $LOG_DIR)"
 (cd "$REPO_ROOT/$EXAMPLE_DIR" && ./run_pytest.sh "$SUBSET" >"$LOG_DIR/a.log" 2>&1) &
-PID_A=$!
+PIDS[a]=$!
 (cd "$PROBE/$EXAMPLE_DIR" && ./run_pytest.sh "$SUBSET" >"$LOG_DIR/b.log" 2>&1) &
-PID_B=$!
-wait $PID_A
-EXIT_A=$?
-wait $PID_B
-EXIT_B=$?
+PIDS[b]=$!
 
 FAILED=0
+declare -A PROJECTS
 for run in a b; do
-    exit_var="EXIT_${run^^}"
+    wait "${PIDS[$run]}"
+    exit_code=$?
     log="$LOG_DIR/$run.log"
     # run_pytest.sh prints "Compose project: <name>" at start.
     project=$(sed -n 's/^Compose project: //p' "$log")
-    echo "--- run $run: exit ${!exit_var}, project '${project}'"
-    if [ "${!exit_var}" -ne 0 ]; then
+    PROJECTS[$run]=$project
+    echo "--- run $run: exit $exit_code, project '$project'"
+    if [ "$exit_code" -ne 0 ]; then
         FAILED=1
         tail -25 "$log"
     fi
@@ -77,10 +83,8 @@ for run in a b; do
     fi
 done
 
-PROJECT_A=$(sed -n 's/^Compose project: //p' "$LOG_DIR/a.log")
-PROJECT_B=$(sed -n 's/^Compose project: //p' "$LOG_DIR/b.log")
-if [ -n "$PROJECT_A" ] && [ "$PROJECT_A" = "$PROJECT_B" ]; then
-    echo "FAIL: both runs used compose project $PROJECT_A"
+if [ -n "${PROJECTS[a]}" ] && [ "${PROJECTS[a]}" = "${PROJECTS[b]}" ]; then
+    echo "FAIL: both runs used compose project ${PROJECTS[a]}"
     FAILED=1
 fi
 
