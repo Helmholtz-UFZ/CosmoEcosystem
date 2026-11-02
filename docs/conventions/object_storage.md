@@ -104,7 +104,7 @@ read-only, from the app's directory with its `.env` in place:
 ```bash
 cd <app directory>          # where the app's .env lives; config reads it from the CWD
 uv run python -m cosmo_ecosystem.job_retention <module setting DbManager.job_table>
-# e.g. csv_profiler.celery_app, cosmonaut_app.db_manager
+# e.g. csv_profiler.domain, cosmonaut_app.db_manager
 ```
 
 Run from anywhere else, it fails at import with `Environment variable … not set`.

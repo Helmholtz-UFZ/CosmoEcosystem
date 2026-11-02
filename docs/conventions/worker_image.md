@@ -35,9 +35,17 @@ computation error message, three layers away from a missing storage config.
 ```dockerfile
 CMD echo "Starting Celery worker..." && \
     python3 /python_docker/<pkg>/<pkg>/object_storage_manager.py setup_remote && \
-    exec celery -A <app>.celery_app.celery worker \
+    exec celery -A cosmo_ecosystem.celery_app.celery worker \
         ...
 ```
+
+The `-A` is the framework's app, assembled from the domain module that
+`COSMO_DOMAIN` names, so the image sets `ENV COSMO_DOMAIN=<app>.domain`. No
+`--queues`: the worker consumes every queue a task spec routes to, which the
+framework derives into `task_queues`
+([ADR 0003](../adr/0003-framework-assembles-the-celery-app.md)). A hand-kept queue
+list was one more string no linter reads, and it had already drifted (a test worker
+listening on a queue nothing routed to, another skipping `default`).
 
 `;` turns a failed setup into a silently degraded worker. `&&` turns it into a
 container that does not start, which a restart loop and any orchestrator

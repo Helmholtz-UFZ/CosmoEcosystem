@@ -2,8 +2,9 @@
 
 A `cosmo_ecosystem` `Job` is generic over its configuration `model`. A domain
 plugs its configuration into the framework by injecting four class attributes on
-`Job` at application startup — in **both** the web app (`app.py`) and the Celery
-worker entrypoint (`celery_app.py`), **before any `Job` is constructed**:
+`Job` in its **domain module** (`<app>/domain.py`, named by `COSMO_DOMAIN`), which
+both the web app (`app.py`, at its top) and the Celery worker (through the
+framework's Celery app assembly) import **before any `Job` is constructed**:
 
 ```python
 Job.config_model   = ProfileConfig                        # an UploadJobConfig subclass
@@ -54,8 +55,9 @@ the installed distribution metadata, so it cannot drift from `pyproject.toml`).
 An app with its own release cycle should inject its own version — otherwise its
 jobs are stamped with the framework's version, which says nothing about the
 domain code that computed the result. Injecting it in `app.py` alone is not
-enough: `celery_app.py` constructs `Job`s in the worker process too, and an
-unset seam there silently stamps the framework version on worker-created jobs.
+enough: the worker constructs `Job`s too and never imports `app.py`, and an unset
+seam there silently stamps the framework version on worker-created jobs. That is
+why the seams live in the domain module, which every process imports.
 
 ## Why injection, not import
 

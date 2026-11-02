@@ -25,7 +25,7 @@ no failing test, and a symptom that surfaces somewhere else entirely.**
 | --- | --- | --- |
 | any framework page | `cosmo_ecosystem.layouts` | nothing since v0.7.0 — the navbar-collapse callback used to be here, see [silent failure 4](#4-an-import-registers-a-callback-and-a-consumer-never-asked) |
 | `pages.job_management` | `cosmo_ecosystem.job_retention`, `cosmo_ecosystem.job_persistence`, `cosmo_ecosystem.db_manager` (not `cosmo_ecosystem.job`: it cleans through `job_retention` and deletes through `job_persistence`) | its own page + two callbacks, one of them clientside (the overlay opener). Raises `JobLinkNotConfigured` instead when `cosmo_ecosystem.pages.job_link` is unset |
-| `pages.worker_management` | `cosmo_ecosystem.background_job_manager` | its own page + eleven callbacks, one of them clientside |
+| `pages.worker_management` | `cosmo_ecosystem.background_job_manager`, which it reads at import, so the import assembles the process's Celery app and imports the domain module `COSMO_DOMAIN` names ([ADR 0003](../adr/0003-framework-assembles-the-celery-app.md)). Unset, the import raises `DomainNotConfigured` | its own page + eleven callbacks, one of them clientside |
 | `layouts.app_layout()` | — | the navbar-collapse callback on `NAVBAR_TOGGLER_BUTTON_SHARED_ID` / `NAVBAR_COLLAPSE_DIV_SHARED_ID` — it mounts that navbar |
 | `layouts.register_navbar_callbacks()` | — | the navbar-collapse callback, for an app that mounts the shared id in a navbar of its own |
 

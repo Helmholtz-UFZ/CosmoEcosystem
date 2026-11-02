@@ -56,8 +56,7 @@ production image did not use.
 # docker/worker.Dockerfile
 CMD echo "Starting Celery worker..." && \
     python3 -m cosmo_ecosystem.object_storage_manager setup_remote && \
-    exec celery -A <app>.celery_app.celery worker \
-        --queues=default,... \
+    exec celery -A cosmo_ecosystem.celery_app.celery worker \
         --beat \
         --hostname=worker@%h
 ```
@@ -75,6 +74,11 @@ beat_thread.start()
 - **Local dev and CI:** compose runs the worker from the same Dockerfile, so Beat runs
   there too. The test suites start their worker without `--beat`, and no test needs the
   schedule.
+- **Where the schedule comes from:** `cosmo_ecosystem.celery_app` derives
+  `beat_schedule` from the task specs: the framework cleanup at 03:00 and every
+  domain spec with a `beat`, in the app's configured `timezone`. A domain
+  `celery_config` that sets `beat_schedule` itself is rejected
+  ([ADR 0003](../adr/0003-framework-assembles-the-celery-app.md)).
 - **Schedule file:** Beat keeps its state in `beat_schedule_filename`
   (`/tmp/celerybeat-schedule`, set in `BaseCeleryConfig`). A pod restart loses it, which
   only matters for schedules shorter than the restart interval.
