@@ -27,6 +27,7 @@ dev = [
     "python-slugify>=8.0.0",
     "selenium>=4.0.0",
     "ruff>=0.7.4",
+    "psutil>=5.9",
 ]
 
 [tool.pytest.ini_options]
