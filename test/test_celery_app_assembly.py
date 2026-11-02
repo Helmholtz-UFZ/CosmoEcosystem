@@ -17,6 +17,8 @@ import textwrap
 
 import pytest
 
+from cosmo_ecosystem.celery_config import BaseCeleryConfig
+
 NAME_CLEANUP_TASK = "cosmo_ecosystem.tasks.maintenance_tasks.cleanup"
 NAME_TEST_TASK = "cosmo_ecosystem.tasks.test_tasks.long_running_test"
 
@@ -68,6 +70,11 @@ print(json.dumps({
         key: {"task": entry["task"], "queue": entry["options"]["queue"]}
         for key, entry in celery.conf.beat_schedule.items()
     },
+    "cleanup_schedule": repr(
+        celery.conf.beat_schedule["cosmo_ecosystem.tasks.maintenance_tasks.cleanup"][
+            "schedule"
+        ]
+    ),
     "timezone": celery.conf.timezone,
     "manager_wraps_it": background_job_manager.app is celery,
 }))
@@ -128,6 +135,16 @@ def test_beat_holds_the_cleanup_and_the_domain_schedule(report):
         NAME_CLEANUP_TASK: {"task": NAME_CLEANUP_TASK, "queue": "maintenance"},
         "fake_domain.refresh": {"task": "fake_domain.refresh", "queue": "nightly"},
     }
+
+
+def test_the_cleanup_runs_nightly_at_three(report):
+    """03:00 every day; Beat reads it in the app's timezone."""
+    assert report["cleanup_schedule"] == ("<crontab: 0 3 * * * (m/h/dM/MY/d)>")
+
+
+def test_the_base_config_holds_no_schedule_of_its_own():
+    """The beat schedule has one source: the task specs."""
+    assert "beat_schedule" not in vars(BaseCeleryConfig)
 
 
 def test_domain_celery_settings_apply(report):

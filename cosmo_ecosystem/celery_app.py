@@ -66,14 +66,10 @@ _app: Celery | None = None
 
 
 def _check_domain_config(config: type[BaseCeleryConfig]) -> None:
-    """Reject a domain config that sets a setting the task specs own.
-
-    ``BaseCeleryConfig`` itself is skipped: only what the domain adds counts.
-    """
+    """Reject a domain config that sets a setting the task specs own."""
     for setting in SPEC_OWNED_SETTINGS:
-        for klass in config.__mro__:
-            if klass is not BaseCeleryConfig and setting in vars(klass):
-                raise DomainCeleryConfigInvalid(setting)
+        if hasattr(config, setting):
+            raise DomainCeleryConfigInvalid(setting)
 
 
 def _queue(name: str) -> Queue:
