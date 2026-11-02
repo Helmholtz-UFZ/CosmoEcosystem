@@ -101,9 +101,10 @@ def run(
     Any exception, clearing the job log included, ends the run as FAILED,
     logged with its traceback to the job log and the worker log; nothing is
     raised. The job log is flushed before the final status is written. If the
-    claim itself fails (database down), the run tries to write FAILED; if the
-    FAILED write fails too, the run says so in the worker log and returns
-    FAILED. A failed upload ends FAILED, so COMPLETED never names files the
+    claim itself fails (database error), the run writes FAILED only if the row
+    is still queued, so a row another delivery claimed is left alone, and
+    returns FAILED. If the FAILED write fails too, the run says so in the
+    worker log and returns FAILED. A failed upload ends FAILED, so COMPLETED never names files the
     remote prefix lacks.
 
     Args:
@@ -120,15 +121,21 @@ def run(
     root_level = root.level
     handler = None
     heartbeat = None
+    claimed = False
     try:
         # The first write, before the job log is cleared: a lost claim must
-        # not clear the job log of a live or lost run.
+        # not clear the job log of a live or lost run. Claim, heartbeat and the
+        # failed-claim write go to DbManager directly, not through
+        # job_persistence: they are conditional updates whose result is the
+        # point, and job_persistence.update_columns is the unconditional
+        # column seam (it would overwrite whatever another delivery wrote).
         if not DbManager.claim_run(job_id):
             log.warning(
                 f"Drop this delivery of job {job_id}: its row is not a queued "
                 "run (already claimed, reset, cancelled or deleted)."
             )
             return None
+        claimed = True
         heartbeat = _Heartbeat(job_id, heartbeat_interval)
         # Inside the guard: if the database fails even here, the run still
         # ends FAILED. The handler goes on before the load and the
@@ -158,7 +165,10 @@ def run(
         log.error(f"Job run of job {job_id} failed.", exc_info=True)
         if handler is not None:
             handler.flush()
-        _write_failed(job_id)
+        if claimed:
+            _write_failed(job_id)
+        else:
+            _write_failed_if_queued(job_id)
         return "FAILED"
     finally:
         if heartbeat is not None:
@@ -167,6 +177,27 @@ def run(
             root.removeHandler(handler)
             handler.close()
         root.setLevel(root_level)
+
+
+def _write_failed_if_queued(job_id: str) -> None:
+    """After a failed claim: write FAILED only if the run is still queued.
+
+    The claim may have failed after another delivery claimed the row, or its
+    own update may even have committed; either way, a row with a heartbeat is
+    a run someone computes, and the sweep watches it.
+    """
+    try:
+        if not DbManager.fail_queued_run(job_id):
+            log.warning(
+                f"Job {job_id}: the claim failed and the row is not a queued run; "
+                "it is left as it is."
+            )
+    except SQLAlchemyError:
+        log.error(
+            f"Job {job_id}: writing its FAILED status failed; the row may still "
+            "say RUNNING.",
+            exc_info=True,
+        )
 
 
 def _write_failed(job_id: str) -> None:

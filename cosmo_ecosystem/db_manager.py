@@ -356,6 +356,26 @@ class DbManager:
             return result.rowcount == 1
 
     @classmethod
+    def fail_queued_run(cls, job_id) -> bool:
+        """Write FAILED to the job's row if its run is still queued; return whether.
+
+        Queued means RUNNING with no heartbeat: a row another delivery claimed
+        is left alone.
+        """
+        job_table = cls._job_table()
+        with cls.session_scope() as session:
+            result = session.execute(
+                update(job_table)
+                .where(
+                    job_table.job_id == job_id,
+                    job_table.status == "RUNNING",
+                    job_table.heartbeat_at.is_(None),
+                )
+                .values(status="FAILED")
+            )
+            return result.rowcount == 1
+
+    @classmethod
     def refresh_heartbeat(cls, job_id):
         """Set the heartbeat of the job's row to now(), if a run has claimed it.
 

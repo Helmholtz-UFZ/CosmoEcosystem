@@ -580,3 +580,42 @@ def test_a_live_runs_heartbeat_never_claims_a_requeued_row():
         assert seen == [None, "COMPLETED"]
     finally:
         _cleanup(job_id)
+
+
+def _claim_fails(job_id):
+    """A claim that hits a database error after it was sent."""
+    raise OperationalError("UPDATE jobs", {}, Exception("hiccup"))
+
+
+def test_a_claim_that_fails_on_a_still_queued_row_ends_the_run_failed(monkeypatch):
+    """A database hiccup at the claim does not leave a job queued forever."""
+    job_id = "test_job_run_claim_fails_queued"
+    _submit(job_id)
+    monkeypatch.setattr(DbManager, "claim_run", _claim_fails)
+
+    try:
+        status = job_run.run(job_id, _failing_compute)
+
+        assert status == "FAILED"
+        assert load_row(job_id)["status"] == "FAILED"
+    finally:
+        monkeypatch.undo()
+        _cleanup(job_id)
+
+
+def test_a_claim_that_fails_leaves_a_row_another_delivery_claimed_alone(monkeypatch):
+    """A failed claim never fails a run that another delivery is computing."""
+    job_id = "test_job_run_claim_fails_claimed"
+    _submit(job_id)
+    set_heartbeat(job_id)
+    before = row_and_log(job_id)
+    monkeypatch.setattr(DbManager, "claim_run", _claim_fails)
+
+    try:
+        status = job_run.run(job_id, _failing_compute)
+
+        assert status == "FAILED"
+        assert row_and_log(job_id) == before
+    finally:
+        monkeypatch.undo()
+        _cleanup(job_id)
