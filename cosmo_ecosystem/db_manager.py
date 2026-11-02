@@ -318,19 +318,19 @@ class DbManager:
                 return True
 
     @classmethod
-    def mark_queued(cls, job_id):
-        """Write RUNNING and clear the heartbeat of the job's row, in one update.
+    def set_status_without_heartbeat(cls, job_id, status):
+        """Write status and clear the heartbeat of the job's row, in one update.
 
         Raises:
             JobNotFound: If the job has no row.
         """
-        log.debug(f"Mark job {job_id} queued.")
+        log.debug(f"Set job {job_id} to {status} without a heartbeat.")
         job_table = cls._job_table()
         with cls.session_scope() as session:
             result = session.execute(
                 update(job_table)
                 .where(job_table.job_id == job_id)
-                .values(status="RUNNING", heartbeat_at=None)
+                .values(status=status, heartbeat_at=None)
             )
             if result.rowcount == 0:
                 raise JobNotFound(job_id)

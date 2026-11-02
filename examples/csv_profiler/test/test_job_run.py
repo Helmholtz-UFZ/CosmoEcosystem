@@ -14,6 +14,7 @@ from sqlalchemy.orm import sessionmaker
 from cosmo_ecosystem import job_log, job_persistence, job_run, object_storage_manager
 from cosmo_ecosystem.config import OBJECT_STORAGE_BUCKET, OBJECT_STORAGE_REMOTE_NAME
 from cosmo_ecosystem.db_manager import DbManager
+from cosmo_ecosystem.error_handling import JobNotFound
 from cosmo_ecosystem.job_log import JobLogHandler
 from cosmo_ecosystem.job_persistence import load_row, local_dir
 from cosmo_ecosystem.object_storage_manager import (
@@ -619,3 +620,26 @@ def test_a_claim_that_fails_leaves_a_row_another_delivery_claimed_alone(monkeypa
     finally:
         monkeypatch.undo()
         _cleanup(job_id)
+
+
+def test_mark_pending_returns_the_row_to_pending_with_no_heartbeat():
+    """A reset job carries no trace of its last run's sign of life."""
+    job_id = "test_job_run_mark_pending"
+    _submit(job_id)
+    job_persistence.update_columns(job_id, {"status": "FAILED"})
+    set_heartbeat(job_id, "11 minutes")
+
+    try:
+        job_run.mark_pending(job_id)
+
+        row = load_row(job_id)
+        assert (row["status"], row["heartbeat_at"]) == ("PENDING", None)
+    finally:
+        _cleanup(job_id)
+
+
+@pytest.mark.parametrize("mark", [job_run.mark_queued, job_run.mark_pending])
+def test_marking_a_job_without_a_row_raises_job_not_found(mark):
+    """Queueing or resetting a deleted job fails loud instead of writing nothing."""
+    with pytest.raises(JobNotFound):
+        mark("test_job_run_mark_no_row")

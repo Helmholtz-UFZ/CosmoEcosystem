@@ -448,9 +448,9 @@ class Job(BaseJob):
         )
         self.delete_logs()
         self.dump_parameters()
-        # PENDING and no heartbeat in one write: the last run's heartbeat would
-        # keep the next run from claiming the row.
-        job_persistence.save(self.job_id, {**self._row(), "heartbeat_at": None})
+        self.save()
+        # The last run's heartbeat would keep the next run from claiming the row.
+        job_run.mark_pending(self.job_id)
 
     def delete_logs(self):
         """Clear the job log."""

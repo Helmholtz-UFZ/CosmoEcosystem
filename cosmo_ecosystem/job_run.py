@@ -39,7 +39,19 @@ def mark_queued(job_id: str) -> None:
     Raises:
         JobNotFound: If the job has no row.
     """
-    DbManager.mark_queued(job_id)
+    DbManager.set_status_without_heartbeat(job_id, "RUNNING")
+
+
+def mark_pending(job_id: str) -> None:
+    """Return the job's row to PENDING with no heartbeat, in one update.
+
+    For a job reset: the last run's heartbeat goes with it, so the row cannot
+    look claimed when it is queued again. The counterpart of ``mark_queued``.
+
+    Raises:
+        JobNotFound: If the job has no row.
+    """
+    DbManager.set_status_without_heartbeat(job_id, "PENDING")
 
 
 class _Heartbeat:
