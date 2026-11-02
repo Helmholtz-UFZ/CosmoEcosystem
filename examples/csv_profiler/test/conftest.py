@@ -36,12 +36,11 @@ from cosmo_ecosystem.object_storage_manager import (
     setup_remote,
 )
 
-from csv_profiler.db_manager import JobTable
-
 # Every test module in this suite imports DbManager directly (test_db_manager.py)
 # or transitively through cosmo_ecosystem.job (test_e2e.py's dash_app fixture), so
-# this has to be set once here, before collection, same as csv_profiler.domain does.
-DbManager.job_table = JobTable
+# the domain module has to run once here, before collection: importing it wires
+# DbManager.job_table and the Job seams, exactly as it does for the worker.
+import csv_profiler.domain  # noqa: F401  (imported for its side effects)
 
 
 def create_logger():
