@@ -24,6 +24,10 @@ right after revoking it, because a terminated worker writes nothing.
 - The Celery state on the worker-management page says nothing about whether a job
   succeeded; read the job row or the job log.
 - A worker killed mid-run (OOM, pod restart) leaves the row RUNNING. Detecting that
-  is roadmap step #6, not something the Celery state is relied on for.
+  is roadmap step #6, not something the Celery state is relied on for: the job run
+  keeps a heartbeat in the row and a sweep ends lost runs as FAILED
+  ([ADR 0004](0004-lost-job-runs-are-swept-not-retried.md)). The job run no longer
+  writes RUNNING itself; the submit queues the run (RUNNING, no heartbeat) and the
+  run claims it.
 - A cancel racing a run that just finished can leave FAILED on a finished job, or
   COMPLETED if the worker writes last; both are accepted.

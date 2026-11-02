@@ -49,6 +49,23 @@ The log records written during a job's latest job run, kept with the job and
 readable while the run is still going. A new run starts an empty job log.
 _Avoid_: Log file, worker log (the worker log is the worker process's own output)
 
+**Heartbeat**:
+The sign of life a job run leaves in its job row while it computes. A job run that
+has not started yet has none.
+_Avoid_: Ping, keepalive, last seen
+
+**Lost job run**:
+A job run whose worker died before it could record a final status, recognised by a
+heartbeat that has stopped. It ends FAILED and is not retried; a job reset starts a
+new run.
+_Avoid_: Stuck job, stale job, zombie, orphaned job (orphaned names remote prefixes
+without a job row)
+
+**Sweep**:
+The periodic framework task that ends every lost job run as FAILED and records why in
+its job log.
+_Avoid_: Reaper, watchdog, cleanup (the cleanup deletes expired jobs and old logs)
+
 ### Processes
 
 **Domain module**:

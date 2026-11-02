@@ -35,6 +35,11 @@ class BaseCeleryConfig:
     # Socket timeouts for Redis operations — broker_connection_timeout only covers
     # TCP connect. These cover actual Redis commands (PUBLISH, SET, SUBSCRIBE, …).
     # Without them, a frozen Redis pod blocks all Celery calls forever.
+    #
+    # No visibility_timeout here: Redis's default (1 h) is harmless. A message
+    # unacked that long is redelivered, whether its run died with the pod or is
+    # still computing, and the redelivery loses the job run's claim and is
+    # dropped; a dead run is ended by the sweep instead (ADR 0004).
     broker_transport_options = {"socket_timeout": 5, "socket_connect_timeout": 5}
     result_backend_transport_options = {
         "socket_timeout": 5,
@@ -67,6 +72,10 @@ class BaseCeleryConfig:
     # Worker settings
     worker_prefetch_multiplier = 1  # Disable prefetching for fair distribution
     task_acks_late = True  # Acknowledge tasks after completion
+    # task_reject_on_worker_lost stays off (Celery's default): a run whose child
+    # was killed (OOM, hard time limit, admin kill) is acked, not redelivered.
+    # Nothing is retried; the sweep ends the lost run as FAILED and the user
+    # resets the job (ADR 0004). Turning it on would rerun a deterministic OOM.
     # Restart worker after 50 tasks (memory cleanup)
     worker_max_tasks_per_child = 50
 
