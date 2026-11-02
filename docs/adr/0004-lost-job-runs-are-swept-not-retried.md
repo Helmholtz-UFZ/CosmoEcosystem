@@ -36,7 +36,21 @@ default because a redelivery can no longer start a second computation.
 - Queueing a run goes through `job_run.mark_queued`; an app with its own job class
   that writes RUNNING itself breaks the claim, and its run is dropped and then swept.
 - A deploy that kills a worker pod mid-run fails those runs; users reset them.
-- `job_run.run` returns `None` for a dropped delivery; apps skip their post-run work.
+- `job_run.run` returns `None` for a dropped delivery (no named sentinel); apps skip
+  their post-run work.
+- A claim that raises (database error) ends the run FAILED only if the row is still
+  queued (`RUNNING`, no heartbeat); a row another delivery claimed is left alone.
+- The heartbeat refreshes only a row that already has one, so a thread of a run
+  swept by mistake never claims the row after it is queued again.
+- A redelivery after a pod death comes when a worker starts or, while one runs,
+  about every 100 s: kombu restores unacked messages older than
+  `visibility_timeout` at worker start and on every tenth 10 s cycle.
+- A save from a job object loaded while RUNNING can write RUNNING over a swept
+  FAILED. No run starts (the heartbeat stays stale), and the next sweep fails it
+  again with a second job-log line. Follow-up: `.scratch/stuck-running/issues/07`.
+- A stale message after a reset is dropped only until the job is submitted again.
+  After that it may win the claim instead of the new message; exactly one run still
+  computes the current input.
 - A lost job run sends no end mail.
 - Known gap: a message the broker loses leaves its row RUNNING with no heartbeat, and
   the sweep never touches it.

@@ -136,13 +136,16 @@ the union is what makes the mixin safe across several physical schemas.
 ### Queueing a run, and resetting a job, in an own job class
 
 The job run claims only a row that is `RUNNING` with `heartbeat_at IS NULL`. Every
-job class therefore keeps two rules (the framework `Job` does):
+job class therefore keeps three rules (the framework `Job` does):
 
 - **Submit queues through `job_run.mark_queued(job_id)`**, before the enqueue
   (ADR 0002). It writes `status='RUNNING'` and `heartbeat_at=NULL` in one update.
   A submit that writes `RUNNING` itself leaves the last run's heartbeat in the row:
   the new run loses its claim, is dropped, and the sweep fails the job.
-- **Reset writes `heartbeat_at=NULL` with `PENDING`.**
+- **A reset returns the job to PENDING through `job_run.mark_pending(job_id)`**:
+  `status='PENDING'` and `heartbeat_at=NULL` in one update, `JobNotFound` without a
+  row. An app without a reset, which resubmits a FAILED job directly
+  (COSMOPOLITAN), is covered by `mark_queued` alone: it clears the heartbeat too.
 - **A save never writes `heartbeat_at` back.** A job loaded before the run's last
   beat would overwrite it with an older value (`job.RUN_OWNED_COLUMNS`).
 
