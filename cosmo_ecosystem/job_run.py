@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 heartbeat_log = logging.getLogger(f"{__name__}.heartbeat")
 
 # How often a run refreshes its heartbeat. The sweep's threshold
-# (tasks.lost_run_tasks) must stay well above it.
+# (tasks.sweep_tasks.LOST_RUN_THRESHOLD) must stay well above it.
 HEARTBEAT_INTERVAL_SECONDS = 60.0
 # How long the end of a run waits for a heartbeat write still in progress.
 HEARTBEAT_STOP_TIMEOUT_SECONDS = 5.0
@@ -103,9 +103,8 @@ def run(
     raised. The job log is flushed before the final status is written. If the
     claim itself fails (database down), the run tries to write FAILED; if the
     FAILED write fails too, the run says so in the worker log and returns
-    FAILED. A
-    failed upload ends FAILED, so COMPLETED never names files the remote
-    prefix lacks.
+    FAILED. A failed upload ends FAILED, so COMPLETED never names files the
+    remote prefix lacks.
 
     Args:
         job_id: The job to run.
