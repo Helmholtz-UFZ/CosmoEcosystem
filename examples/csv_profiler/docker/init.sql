@@ -15,7 +15,10 @@ CREATE TABLE jobs (
     submitted BOOL,
     notified_end BOOL,
     status VARCHAR,
-    version VARCHAR
+    version VARCHAR,
+    -- Written with the database's now() by the job run (cosmo_ecosystem.job_run);
+    -- NULL while the run is queued and unclaimed.
+    heartbeat_at TIMESTAMPTZ
 );
 
 -- Create logs table for application logging

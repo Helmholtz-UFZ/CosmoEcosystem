@@ -26,7 +26,7 @@ from cosmo_ecosystem.error_handling import (
     JobExists,
     JobNotFound,
 )
-from cosmo_ecosystem import job_log, job_persistence
+from cosmo_ecosystem import job_log, job_persistence, job_run
 from cosmo_ecosystem.job_retention import days_to_live
 from cosmo_ecosystem.pydantic_models import UploadJobConfig, validate_job_id
 
@@ -52,6 +52,10 @@ REQUIRED_EXTRA_COLUMNS = ("input_data",)
 # into the `job_logs` table. A table that still has it keeps working: the Job
 # neither reads nor writes it, and the app drops it after its migration.
 LEGACY_LOGS_COLUMN = "logs"
+
+# Columns the job run writes and a Job never writes back: a save during a run
+# would put the heartbeat the Job loaded over the run's newer one (ADR 0004).
+RUN_OWNED_COLUMNS = ("heartbeat_at",)
 
 
 def find_unique_job_id() -> str:
@@ -326,7 +330,7 @@ class Job(BaseJob):
         row = {
             name: self._get_column_data(name)
             for name in column_names
-            if name != LEGACY_LOGS_COLUMN
+            if name != LEGACY_LOGS_COLUMN and name not in RUN_OWNED_COLUMNS
         }
         self.config_model(**json.loads(row["input_data"]))
         return row
@@ -362,14 +366,16 @@ class Job(BaseJob):
                 "at startup before submitting a Job."
             )
 
-        # Save BEFORE enqueuing, RUNNING included: pull first so the dir exists
-        # and holds nothing stale, then upload and write the submitted row. A
-        # fast worker may write COMPLETED or FAILED before the handler returns,
-        # and a RUNNING written after the enqueue would overwrite it (ADR 0002).
-        # Nothing is synced after the enqueue; only a failure is written then.
-        self.status = "RUNNING"
+        # Save and queue BEFORE enqueuing: pull first so the dir exists and
+        # holds nothing stale, upload and write the submitted row, then queue
+        # the run (RUNNING, no heartbeat). A fast worker may claim the run and
+        # write COMPLETED or FAILED before the handler returns, and a RUNNING
+        # written after the enqueue would overwrite it (ADR 0002). Nothing is
+        # synced after the enqueue; only a failure is written then.
         self.working_dir = job_persistence.work_dir(self.job_id)
         job_persistence.save(self.job_id, self._row())
+        job_run.mark_queued(self.job_id)
+        self.status = "RUNNING"
 
         # A handler that raises is re-raised after FAILED is written, while a
         # handler that reports failure returns: the flag is a failure the app
@@ -442,7 +448,9 @@ class Job(BaseJob):
         )
         self.delete_logs()
         self.dump_parameters()
-        self.save()
+        # PENDING and no heartbeat in one write: the last run's heartbeat would
+        # keep the next run from claiming the row.
+        job_persistence.save(self.job_id, {**self._row(), "heartbeat_at": None})
 
     def delete_logs(self):
         """Clear the job log."""

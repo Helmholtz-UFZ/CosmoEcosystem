@@ -15,6 +15,7 @@ from sqlalchemy import (
     String,
     Text,
     create_engine,
+    update,
 )
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
@@ -316,6 +317,24 @@ class DbManager:
                 return True
 
     @classmethod
+    def mark_queued(cls, job_id):
+        """Write RUNNING and clear the heartbeat of the job's row, in one update.
+
+        Raises:
+            JobNotFound: If the job has no row.
+        """
+        log.debug(f"Mark job {job_id} queued.")
+        job_table = cls._job_table()
+        with cls.session_scope() as session:
+            result = session.execute(
+                update(job_table)
+                .where(job_table.job_id == job_id)
+                .values(status="RUNNING", heartbeat_at=None)
+            )
+            if result.rowcount == 0:
+                raise JobNotFound(job_id)
+
+    @classmethod
     def get_job_columns(cls, job_id):
         """Retrieve all columns of a specific job entry based on its job ID."""
         log.debug(f"Get columns for job: {job_id}")
@@ -373,7 +392,7 @@ class DbManager:
 
 
 class JobColumns:
-    """The six columns every app's ``jobs`` table is measured to carry.
+    """The columns every app's ``jobs`` table carries.
 
     Not mapped and not a table: an app declares its own concrete class from
     this mixin, on the framework ``Base``, alongside whatever extra columns its
@@ -389,7 +408,9 @@ class JobColumns:
 
     The intersection, measured across COSMOPOLITAN, COSMONAUT and the reference
     domain on 2026-08-21: COSMONAUT has neither ``input_data`` nor ``logs``, so
-    those two stay app-side rather than in this mixin. See
+    those two stay app-side rather than in this mixin. ``heartbeat_at`` is not
+    measured but required: the framework's job run writes it (ADR 0004), so every
+    app's table has to grow it before the app deploys this mapping. See
     docs/conventions/database_schema.md.
     """
 
@@ -399,6 +420,9 @@ class JobColumns:
     notified_end = Column(Boolean)
     status = Column(String)
     version = Column(String)
+    # The job run's sign of life, always the database's now(); NULL while the
+    # run is queued and no worker has claimed it (cosmo_ecosystem.job_run).
+    heartbeat_at = Column(DateTime(timezone=True))
 
 
 class LogTable(Base):

@@ -12,10 +12,24 @@ from collections.abc import Callable
 from sqlalchemy.exc import SQLAlchemyError
 
 from cosmo_ecosystem import job_log, job_persistence
+from cosmo_ecosystem.db_manager import DbManager
 from cosmo_ecosystem.error_handling import JobNotFound
 from cosmo_ecosystem.job_log import JobLogHandler
 
 log = logging.getLogger(__name__)
+
+
+def mark_queued(job_id: str) -> None:
+    """Queue a run in the job's row: RUNNING, and no heartbeat, in one update.
+
+    The only place a run's row is queued. Call it before the enqueue (ADR 0002):
+    the run claims exactly a RUNNING row without a heartbeat, so a submit that
+    writes RUNNING itself leaves an old heartbeat behind, and its run is dropped.
+
+    Raises:
+        JobNotFound: If the job has no row.
+    """
+    DbManager.mark_queued(job_id)
 
 
 def run(

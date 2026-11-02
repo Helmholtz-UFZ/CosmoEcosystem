@@ -7,7 +7,7 @@ import shutil
 import time
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 
@@ -55,6 +55,18 @@ def _submit(job_id, input_data=None):
             "version": "0.1.0",
         }
     )
+
+
+def _set_heartbeat(job_id, age):
+    """Set job_id's heartbeat to the database's now() minus age, an SQL interval."""
+    with DbManager.session_scope() as session:
+        session.execute(
+            text(
+                "UPDATE jobs SET heartbeat_at = now() - CAST(:age AS interval) "
+                "WHERE job_id = :job_id"
+            ),
+            {"age": age, "job_id": job_id},
+        )
 
 
 def _remote_files(job_id):
@@ -378,4 +390,20 @@ def test_whoever_sees_the_final_status_also_sees_the_last_records(
         assert last_record in log_when_final[0]
     finally:
         monkeypatch.undo()
+        _cleanup(job_id)
+
+
+def test_mark_queued_makes_the_row_running_with_no_heartbeat():
+    """A queued run is RUNNING, and no worker has claimed it yet."""
+    job_id = "test_job_run_mark_queued"
+    _submit(job_id)
+    job_persistence.update_columns(job_id, {"status": "FAILED"})
+    _set_heartbeat(job_id, "11 minutes")
+
+    try:
+        job_run.mark_queued(job_id)
+
+        row = load_row(job_id)
+        assert (row["status"], row["heartbeat_at"]) == ("RUNNING", None)
+    finally:
         _cleanup(job_id)
