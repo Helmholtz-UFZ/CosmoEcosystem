@@ -2,6 +2,8 @@
 FROM python:3.13-slim-bookworm
 
 ENV PATH=$PATH:/home/appuser/rclone-binaries/
+# The domain module the framework assembles the Celery app from (ADR 0003).
+ENV COSMO_DOMAIN=csv_profiler.domain
 ENV TZ=Europe/Berlin
 
 # Create non-root user early
@@ -58,12 +60,14 @@ USER appuser
 # --beat embeds the Celery Beat scheduler. It belongs here and not in the web
 # process (see app.py), and it relies on there being exactly one worker container:
 # a second replica would run every scheduled task twice.
+# The app is the framework's, assembled from COSMO_DOMAIN. No --queues: the worker
+# consumes every queue a task spec routes to (task_queues), so a new task cannot
+# land in a queue nobody listens on.
 CMD echo "Starting Celery worker..." && \
     python3 /python_docker/cosmo_ecosystem/cosmo_ecosystem/object_storage_manager.py setup_remote && \
-    exec celery -A csv_profiler.celery_app.celery worker \
+    exec celery -A cosmo_ecosystem.celery_app.celery worker \
         --loglevel=debug \
         --concurrency=4 \
-        --queues=default,computation,maintenance \
         --beat \
         --hostname=worker@%h \
         --without-gossip \

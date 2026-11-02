@@ -103,16 +103,17 @@ read-only, from the app's directory with its `.env` in place:
 
 ```bash
 cd <app directory>          # where the app's .env lives; config reads it from the CWD
-uv run python -m cosmo_ecosystem.job_retention <module setting DbManager.job_table>
-# e.g. csv_profiler.celery_app, cosmonaut_app.db_manager
+uv run python -m cosmo_ecosystem.job_retention
 ```
 
 Run from anywhere else, it fails at import with `Environment variable … not set`.
 On a freshly started local stack the bucket does not exist until the app has run
 once; the report says so and exits instead of creating it.
 
-The module argument is how the framework learns the app's job table. The report
-writes the rclone remote into your rclone config, like the app does at startup,
+`COSMO_DOMAIN` (from the `.env`, or set on the command line) names the app's
+domain module, which is how the framework learns the app's job table, as in the
+worker and the web process. Without it the report stops and names the variable.
+The report writes the rclone remote into your rclone config, like the app does at startup,
 prints the candidates and deletes nothing. On a shared bucket, run it against each
 database that uses the bucket and treat only the prefixes every run lists as
 orphaned. Delete them by hand after review.

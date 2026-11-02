@@ -241,7 +241,7 @@ failed CI twice, once on `domain-free` and once on root (below).
 
 `domain-free` is the one that surprises: the framework package must not *mention*
 the example domain anywhere in Python, docstrings and comments included. Write
-`<app>.celery_app`, not `csv_profiler.celery_app`.
+`<app>.domain`, not `csv_profiler.domain`.
 
 ### CI runs the tests as root
 

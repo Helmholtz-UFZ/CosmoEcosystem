@@ -17,6 +17,10 @@ DOCKER_GID=1000
 FLASK_DEBUG=1
 GUNICORN=0
 
+### Domain module ###
+# Names the module the framework assembles the Celery app from (ADR 0003).
+COSMO_DOMAIN="csv_profiler.domain"
+
 ###  Webserver ###
 WEB_WORK_DIR="./work_dir"
 FLASK_PORT=8082

@@ -1,50 +1,34 @@
 """Background job manager using Celery for distributed task processing.
 
-Task registration lives in celery_app.py (the worker entry point) to avoid a
-circular import: tasks/*.py → job → this module → tasks/*.py.
+The manager wraps the process's one Celery app, which ``cosmo_ecosystem.celery_app``
+assembles from the domain module. Task registration lives there, not here.
 """
 
 import logging
-from logging.config import dictConfig
 
 from celery import Celery
 from celery.exceptions import CeleryError
 from celery.result import AsyncResult
-from celery.signals import worker_process_init
 from kombu.exceptions import OperationalError
 
-from cosmo_ecosystem.celery_config import BaseCeleryConfig
-from cosmo_ecosystem.logger import get_logger_config_worker
+from cosmo_ecosystem import celery_app
+from cosmo_ecosystem.celery_app import NAME_TEST_TASK
 
 log = logging.getLogger(__name__)
-
-NAME_CLEANUP_TASK = "cosmo_ecosystem.tasks.maintenance_tasks.cleanup"
-NAME_TEST_TASK = "cosmo_ecosystem.tasks.test_tasks.long_running_test"
-
-
-@worker_process_init.connect
-def configure_worker_logging(sender=None, conf=None, **kwargs):
-    """Configure database logging for Celery worker processes."""
-    dictConfig(get_logger_config_worker())
 
 
 class BackgroundJobManager:
     """Centralized manager for all background job operations using Celery."""
 
-    def __init__(self):
-        """Initialize the background job manager."""
-        self.app = Celery("cosmo_ecosystem")
-        self.app.config_from_object(BaseCeleryConfig)
-        self.app.conf.update(
-            broker_connection_retry_on_startup=True,
-            broker_connection_retry=True,
-        )
+    def __init__(self, app: Celery):
+        """Wrap ``app``, the process's Celery app."""
+        self.app = app
 
     def _send_task(
         self,
         task_name: str,
         args: list,
-        queue: str,
+        queue: str | None,
         *,
         track_task_name: bool,
         **opts,
@@ -54,7 +38,8 @@ class BackgroundJobManager:
         Args:
             task_name: Dotted Celery task name (must match the registered name)
             args: Positional args passed to the task
-            queue: Target queue name
+            queue: Explicit queue, or None to let the app's ``task_routes`` (derived
+                from the task specs) decide
             track_task_name: Store the task name in the result backend
             **opts: Passed through to ``Celery.send_task``; an explicit key
                 overrides the framework default for it
@@ -63,7 +48,10 @@ class BackgroundJobManager:
             tuple: (celery_task_id, failed_boolean)
                    celery_task_id is None if submission failed
         """
+        # No "queue" key at all when None: the routes then pick the queue.
+        queue_opts = {} if queue is None else {"queue": queue}
         send_opts = {
+            **queue_opts,
             "retry": True,
             "retry_policy": {
                 "max_retries": 3,
@@ -74,7 +62,7 @@ class BackgroundJobManager:
         } | opts
 
         try:
-            result = self.app.send_task(task_name, args=args, queue=queue, **send_opts)
+            result = self.app.send_task(task_name, args=args, **send_opts)
             if track_task_name:
                 # Store task name in Redis for revoked task retrieval
                 self.app.backend.client.set(
@@ -92,7 +80,7 @@ class BackgroundJobManager:
         self,
         task_name: str,
         job_id: str,
-        queue: str = "default",
+        queue: str | None = None,
         *,
         track_task_name: bool = True,
         **opts,
@@ -107,7 +95,9 @@ class BackgroundJobManager:
         Args:
             task_name: Dotted Celery task name (must match the registered name)
             job_id: The job id, passed to the task as its only positional arg
-            queue: Target queue name
+            queue: Leave unset: the queue comes from the task's spec, through the
+                app's ``task_routes``. Pass one only to override that route for a
+                single submission.
             track_task_name: Store ``task_name`` under ``task_name:<task_id>``
                 in the result backend. The worker-management page reads that key
                 when a revoked task no longer reports its own name; without it
@@ -131,7 +121,7 @@ class BackgroundJobManager:
         self,
         task_name: str,
         args: list | None = None,
-        queue: str = "default",
+        queue: str | None = None,
     ) -> tuple[str | None, bool]:
         """Submit a named task to a Celery queue with retry + revoke bookkeeping.
 
@@ -142,7 +132,8 @@ class BackgroundJobManager:
         Args:
             task_name: Dotted Celery task name (must match the registered name)
             args: Positional args passed to the task
-            queue: Target queue name
+            queue: Leave unset: the queue comes from the task's spec, through the
+                app's ``task_routes``. Pass one only to override that route.
 
         Returns:
             tuple: (celery_task_id, failed_boolean)
@@ -257,17 +248,15 @@ class BackgroundJobManager:
         log.info(f"Task {task_id} revoked (terminate={terminate})")
 
     def submit_test_task(self) -> tuple[str | None, bool]:
-        """Submit a test sleep task to the Celery queue.
+        """Submit a test sleep task, routed by its task spec.
 
         Returns:
             tuple: (celery_task_id, failed_boolean)
                    celery_task_id is None if submission failed
         """
         try:
-            result = self.app.send_task(
-                NAME_TEST_TASK,
-                queue="test",
-            )
+            # No queue: the test task's spec routes it.
+            result = self.app.send_task(NAME_TEST_TASK)
             # Store task name in Redis for revoked task retrieval
             self.app.backend.client.set(
                 f"task_name:{result.id}",
@@ -280,39 +269,19 @@ class BackgroundJobManager:
             log.error(f"Failed to submit test task: {e}")
             return None, True
 
-    def submit_cleanup_task(self) -> tuple[str | None, bool]:
-        """Submit a maintenance cleanup task to the Celery queue.
-
-        Returns:
-            tuple: (celery_task_id, failed_boolean)
-                   celery_task_id is None if submission failed
-        """
-        try:
-            result = self.app.send_task(
-                NAME_CLEANUP_TASK,
-                queue="default",
-            )
-            # Store task name in Redis for revoked task retrieval
-            self.app.backend.client.set(
-                f"task_name:{result.id}",
-                NAME_CLEANUP_TASK,
-                ex=86400,  # 24 hour TTL
-            )
-            log.info(f"Submitted cleanup task with task_id={result.id}")
-            return result.id, False
-        except (OperationalError, CeleryError) as e:
-            log.error(f"Failed to submit cleanup task: {e}")
-            return None, True
-
 
 _background_job_manager = None
 
 
 def __getattr__(name):
-    """Lazy singleton — BackgroundJobManager is created on first access, not on import."""
+    """Lazy singleton — created on first access, not on import.
+
+    It wraps the one Celery app of the process, so the first access assembles
+    that app from the domain module (``COSMO_DOMAIN``).
+    """
     global _background_job_manager
     if name == "background_job_manager":
         if _background_job_manager is None:
-            _background_job_manager = BackgroundJobManager()
+            _background_job_manager = BackgroundJobManager(celery_app.get_app())
         return _background_job_manager
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

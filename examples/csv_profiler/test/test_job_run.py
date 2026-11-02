@@ -23,7 +23,7 @@ from cosmo_ecosystem.object_storage_manager import (
 )
 
 # Wires the framework Job seams exactly as the worker process has them.
-import csv_profiler.celery_app  # noqa: F401
+import csv_profiler.domain  # noqa: F401
 from csv_profiler.pydantic_models import ProfileConfig
 from csv_profiler.tasks.computation_tasks import profile
 

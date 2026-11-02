@@ -45,6 +45,9 @@ env_vars = [
     "REDIS_PORT",
     "REDIS_DB",
     "REDIS_PASSWORD",
+    # In the list for test_env.py only; read lazily in domain.py, see
+    # docs/conventions/environment_variables.md.
+    "COSMO_DOMAIN",
 ]
 
 # s/=.*//g |'<,'> s/^.*$/& = getenv("&")/g | noh

@@ -74,7 +74,11 @@ log.error(f"Error processing job: {str(e)}", exc_info=True)
 ## Logger Configuration
 
 Configuration is in `src/logger.py`:
-- Web/worker: Console + PostgreSQL database logging
+- Web/worker: Console + PostgreSQL database logging. Worker processes get it
+  from the `worker_process_init` handler that the Celery app's assembly
+  (`cosmo_ecosystem.celery_app`) connects, with the domain module's
+  `excluded_log_packages` muted. An app sets that attribute and nothing else; it
+  neither connects nor disconnects a signal.
 - Computation tasks: the worker config, plus the job log (below)
 - Third-party package filtering to reduce noise
 

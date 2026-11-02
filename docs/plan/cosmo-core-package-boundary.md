@@ -1,5 +1,7 @@
 # cosmo-core — Package-Boundary Specification (v2, adversarially reviewed)
 
+> **Superseded in part:** the Celery and manager parts of this spec (task registration, `BackgroundJobManager` subclassing or mounted methods, per-app Celery apps) are superseded by [ADR 0003](../adr/0003-framework-assembles-the-celery-app.md): the framework assembles the one Celery app from the domain module.
+
 **Created:** 2026-06-29 · **Updated:** 2026-06-30 (name → `cosmo-framework`; home = renamed cosmo-template repo; distribution = git-tag dependency — see "Decisions update" below) · **Status:** design — reviewed (packaging + completeness critiques folded in; ossification pass cut short by a session limit, see verdict) · **Audience:** maintainers of cosmo-template, cosmopolitan, cosmonaut
 **Locked context:** D2 = three repos, one shared `cosmo-core` package · D3 = cosmo-template is build-ground + reference domain, **not** the package home
 **Design invariant:** every extraction is shaped so **cosmonaut adopts without a breaking change** (additive shim, re-export, or registration helper), and **independent per-repo pins are the structural ossification backstop** (the `dash_form_factory` precedent: cosmopolitan `0.1.8` / template `0.1.9` / cosmonaut `0.1.7` — three different pins, zero lockstep).

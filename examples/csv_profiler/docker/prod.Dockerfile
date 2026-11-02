@@ -2,6 +2,8 @@
 FROM python:3.13-slim-bookworm
 
 ENV PATH=$PATH:/home/appuser/rclone-binaries/
+# The domain module the framework assembles the Celery app from (ADR 0003).
+ENV COSMO_DOMAIN=csv_profiler.domain
 ENV TZ=Europe/Berlin
 
 # Create non-root user early

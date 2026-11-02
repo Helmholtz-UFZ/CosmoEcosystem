@@ -74,6 +74,9 @@ cosmo-ecosystem = { path = "/home/<user>/git/cosmo-ecosystem", editable = true }
   and runs the worker against the pinned tag while the tests run against the
   overlay. The environment variable covers every `uv run` the suite spawns.
 
+- **Commit only when no test suite runs in the same worktree.** pre-commit stashes
+  unstaged files for the duration of a commit, which changes files under a suite that
+  is still running there.
 - **The overlay is for tests and the dev server only. Images never see it.** The worker
   and prod Dockerfiles install from the lock file, so they always build against the pinned
   tag. A change that only works with the overlay is not released yet.
