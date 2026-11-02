@@ -31,7 +31,7 @@ from cosmo_ecosystem.job import Job
 from cosmo_ecosystem.job_persistence import delete_job, load_row
 from cosmo_ecosystem.tasks.sweep_tasks import sweep_lost_runs
 
-from lost_run_domain import NAME_SLOW_TASK, SLOW_QUEUE
+from lost_run_domain import HEARTBEAT_INTERVAL_SECONDS, NAME_SLOW_TASK, SLOW_QUEUE
 from lost_run_redelivery_domain import VISIBILITY_TIMEOUT_SECONDS
 
 TEST_DIR = Path(__file__).parent
@@ -124,6 +124,8 @@ def start_worker(request, tmp_path):
 
 def _submit_slow(job):
     """Submit handler: send the job to the test domain's slow task."""
+    # Through the module at call time, as csv_profiler.submissions does: the
+    # manager singleton is built on first access (domain_module.md).
     manager = cosmo_ecosystem.background_job_manager.background_job_manager
     # The test process's app has csv_profiler's routes, not the test domain's.
     return manager.submit_job(NAME_SLOW_TASK, job.job_id, queue=SLOW_QUEUE)
@@ -148,6 +150,16 @@ def _claimed(job_id):
     return load_row(job_id)["heartbeat_at"] is not None
 
 
+def _heartbeat(job_id):
+    """Return the job's heartbeat."""
+    return load_row(job_id)["heartbeat_at"]
+
+
+# The sweep's threshold in these tests: a few heartbeat intervals, as the real
+# one (10 min) is ten intervals of 60 s.
+THRESHOLD = timedelta(seconds=4 * HEARTBEAT_INTERVAL_SECONDS)
+
+
 def test_a_run_whose_child_was_killed_ends_failed_through_the_sweep(
     start_worker, slow_job
 ):
@@ -155,15 +167,27 @@ def test_a_run_whose_child_was_killed_ends_failed_through_the_sweep(
     worker = start_worker("lost_run_domain")
     slow_job.submit()
     _wait_until(lambda: _claimed(slow_job.job_id), "the run to be claimed")
+    claimed_at = _heartbeat(slow_job.job_id)
+    _wait_until(
+        lambda: _heartbeat(slow_job.job_id) > claimed_at,
+        "the heartbeat to advance",
+        timeout=10 * HEARTBEAT_INTERVAL_SECONDS,
+    )
+    # Alive: the sweep leaves it alone.
+    assert slow_job.job_id not in sweep_lost_runs(threshold=THRESHOLD)
 
     (child,) = psutil.Process(worker.process.pid).children()
     child.kill()
     _wait_until(lambda: "WorkerLostError" in worker.log(), "the worker to see it")
+    last_beat = _heartbeat(slow_job.job_id)
+    # Longer than the threshold, so the stopped heartbeat is also a stale one.
+    time.sleep(5 * HEARTBEAT_INTERVAL_SECONDS)
 
-    # The bug: nothing else would ever change this row.
-    assert load_row(slow_job.job_id)["status"] == "RUNNING"
+    # The bug: nothing else would ever change this row, and nothing beats.
+    row = load_row(slow_job.job_id)
+    assert (row["status"], row["heartbeat_at"]) == ("RUNNING", last_beat)
 
-    swept = sweep_lost_runs(threshold=timedelta(0))
+    swept = sweep_lost_runs(threshold=THRESHOLD)
 
     assert slow_job.job_id in swept
     assert load_row(slow_job.job_id)["status"] == "FAILED"

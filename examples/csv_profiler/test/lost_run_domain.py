@@ -23,6 +23,8 @@ NAME_SLOW_TASK = "lost_run_domain.slow_run"
 SLOW_QUEUE = "lost_run_test"
 # Far longer than a test waits: the run is always killed before it ends.
 SLOW_RUN_SECONDS = 300
+# A short heartbeat, so a test sees it advance and stop within seconds.
+HEARTBEAT_INTERVAL_SECONDS = 0.5
 
 log = logging.getLogger(__name__)
 
@@ -35,8 +37,10 @@ def compute_slowly(job_id, work_dir):
 
 
 def slow_task(self, job_id):
-    """Celery task: run the slow computation as a job run."""
-    return job_run.run(job_id, compute_slowly)
+    """Celery task: run the slow computation as a job run, with a short heartbeat."""
+    return job_run.run(
+        job_id, compute_slowly, heartbeat_interval=HEARTBEAT_INTERVAL_SECONDS
+    )
 
 
 celery_config = CeleryConfig

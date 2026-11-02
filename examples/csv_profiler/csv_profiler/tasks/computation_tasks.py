@@ -53,7 +53,8 @@ def start_computation_task(self, job_id):
     """
     status = job_run.run(job_id, profile)
     if status is None:
-        # Dropped delivery: the run is someone else's, or no run at all. An app
-        # with post-run work (end mail, notified_end) returns here before it.
+        # Dropped delivery: the run is someone else's, or no run at all. Nothing
+        # follows here, but this branch is the template for an app with
+        # post-run work (end mail, notified_end): it returns here, before it.
         return None
     return status
