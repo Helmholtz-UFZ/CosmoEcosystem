@@ -37,6 +37,12 @@ Grouped by service. The full list lives in `config.env_vars`.
 4. The `config.env_vars` list enumerates every required variable. Tests use this
    list to validate completeness across all env files.
 
+**Exception: `COSMO_DOMAIN`.** It is in `config.env_vars`, so `test_env.py` checks that
+every env file sets it, but `config.py` has no constant for it. `cosmo_ecosystem/domain.py`
+reads it lazily, on first access to the Celery app: `config.py` reads every variable at
+import, and importing the framework must not need a domain. See
+[domain_module.md](domain_module.md).
+
 ---
 
 ## Docker
