@@ -7,6 +7,7 @@ status to the job row. The job row is the only source of a job's status
 """
 
 import logging
+import threading
 from collections.abc import Callable
 
 from sqlalchemy.exc import SQLAlchemyError
@@ -17,6 +18,15 @@ from cosmo_ecosystem.error_handling import JobNotFound
 from cosmo_ecosystem.job_log import JobLogHandler
 
 log = logging.getLogger(__name__)
+# The heartbeat's own logger, kept out of the job log: a failed beat means the
+# database is unreachable, and the job log is in that database.
+heartbeat_log = logging.getLogger(f"{__name__}.heartbeat")
+
+# How often a run refreshes its heartbeat. The sweep's threshold
+# (tasks.lost_run_tasks) must stay well above it.
+HEARTBEAT_INTERVAL_SECONDS = 60.0
+# How long the end of a run waits for a heartbeat write still in progress.
+HEARTBEAT_STOP_TIMEOUT_SECONDS = 5.0
 
 
 def mark_queued(job_id: str) -> None:
@@ -32,10 +42,43 @@ def mark_queued(job_id: str) -> None:
     DbManager.mark_queued(job_id)
 
 
+class _Heartbeat:
+    """A daemon thread that refreshes a running job's heartbeat until stopped.
+
+    Runs in the prefork child next to the computation. A failed write is
+    logged to the worker log and retried on the next tick.
+    """
+
+    def __init__(self, job_id: str, interval: float):
+        self.job_id = job_id
+        self.interval = interval
+        self._stopped = threading.Event()
+        self._thread = threading.Thread(
+            target=self._beat, name=f"heartbeat-{job_id}", daemon=True
+        )
+        self._thread.start()
+
+    def _beat(self):
+        while not self._stopped.wait(self.interval):
+            try:
+                DbManager.refresh_heartbeat(self.job_id)
+            except SQLAlchemyError as error:
+                heartbeat_log.warning(
+                    f"The heartbeat of job {self.job_id} failed and is retried "
+                    f"in {self.interval} s: {error!r}"
+                )
+
+    def stop(self):
+        """Stop the beats; wait a bounded time for a write still in progress."""
+        self._stopped.set()
+        self._thread.join(timeout=HEARTBEAT_STOP_TIMEOUT_SECONDS)
+
+
 def run(
     job_id: str,
     compute: Callable[[str, str], None],
     excluded_packages=(),
+    heartbeat_interval: float = HEARTBEAT_INTERVAL_SECONDS,
 ) -> str | None:
     """Run compute for the job and return the final status the row now holds.
 
@@ -50,7 +93,10 @@ def run(
     run into it, fetches the work dir, calls ``compute(job_id, work_dir)``,
     uploads the work dir and writes COMPLETED, the row last. ``compute`` loads
     the app's own job, computes, writes its outputs into the work dir, signals
-    failure only by raising, and never writes the status itself.
+    failure only by raising, and never writes the status itself. From the
+    claim to the end of the run, a daemon thread refreshes the row's heartbeat
+    every ``heartbeat_interval`` seconds while the row is RUNNING; the sweep
+    ends a run whose heartbeat stopped as FAILED (ADR 0004).
 
     Any exception, clearing the job log included, ends the run as FAILED,
     logged with its traceback to the job log and the worker log; nothing is
@@ -66,6 +112,7 @@ def run(
         compute: The app's computation, ``compute(job_id, work_dir) -> None``.
         excluded_packages: Extra packages to keep out of the job log, in
             addition to DEFAULT_EXCLUDED_PACKAGES — see ExcludeSubmodulesFilter.
+        heartbeat_interval: Seconds between two heartbeats.
     """
     root = logging.getLogger()
     # Saved and restored around the run: this assumes Celery's prefork pool,
@@ -73,6 +120,7 @@ def run(
     # restore each other's level and see each other's records.
     root_level = root.level
     handler = None
+    heartbeat = None
     try:
         # The first write, before the job log is cleared: a lost claim must
         # not clear the job log of a live or lost run.
@@ -82,11 +130,14 @@ def run(
                 "run (already claimed, reset, cancelled or deleted)."
             )
             return None
+        heartbeat = _Heartbeat(job_id, heartbeat_interval)
         # Inside the guard: if the database fails even here, the run still
         # ends FAILED. The handler goes on before the load and the
         # computation, so their failures land in the job log.
         job_log.clear(job_id)
-        handler = JobLogHandler(job_id, excluded_packages=excluded_packages)
+        handler = JobLogHandler(
+            job_id, excluded_packages=(*excluded_packages, heartbeat_log.name)
+        )
         # The handler sees only what the root level lets through. The worker's
         # logging config sets DEBUG, but a run must not depend on it.
         root.setLevel(min(root_level, logging.DEBUG))
@@ -111,6 +162,8 @@ def run(
         _write_failed(job_id)
         return "FAILED"
     finally:
+        if heartbeat is not None:
+            heartbeat.stop()
         if handler is not None:
             root.removeHandler(handler)
             handler.close()

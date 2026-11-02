@@ -356,6 +356,17 @@ class DbManager:
             return result.rowcount == 1
 
     @classmethod
+    def refresh_heartbeat(cls, job_id):
+        """Set the heartbeat of the job's row to now(), if the row is RUNNING."""
+        job_table = cls._job_table()
+        with cls.session_scope() as session:
+            session.execute(
+                update(job_table)
+                .where(job_table.job_id == job_id, job_table.status == "RUNNING")
+                .values(heartbeat_at=func.now())
+            )
+
+    @classmethod
     def get_job_columns(cls, job_id):
         """Retrieve all columns of a specific job entry based on its job ID."""
         log.debug(f"Get columns for job: {job_id}")

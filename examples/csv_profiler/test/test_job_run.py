@@ -490,3 +490,85 @@ def test_a_delivery_for_a_row_that_is_not_running_changes_nothing(status):
         assert _row_and_log(job_id) == before
     finally:
         _cleanup(job_id)
+
+
+def _wait_for_a_newer_heartbeat(job_id, than, timeout=10):
+    """Return the job's heartbeat once it is newer than ``than``, else None."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        heartbeat = load_row(job_id)["heartbeat_at"]
+        if heartbeat > than:
+            return heartbeat
+        time.sleep(0.05)
+    return None
+
+
+def test_the_heartbeat_advances_while_the_computation_runs():
+    """A long computation is never mistaken for a lost one."""
+    job_id = "test_job_run_heartbeat"
+    _submit(job_id)
+    advanced = []
+
+    def compute(job_id, work_dir):
+        claimed_at = load_row(job_id)["heartbeat_at"]
+        advanced.append(_wait_for_a_newer_heartbeat(job_id, claimed_at) is not None)
+
+    try:
+        job_run.run(job_id, compute, heartbeat_interval=0.2)
+
+        assert advanced == [True]
+    finally:
+        _cleanup(job_id)
+
+
+def test_the_heartbeat_stops_with_the_run():
+    """A finished run leaves no thread behind that keeps the row looking alive."""
+    job_id = "test_job_run_heartbeat_stops"
+    _submit(job_id)
+
+    try:
+        job_run.run(job_id, lambda job_id, work_dir: None, heartbeat_interval=0.2)
+        last = load_row(job_id)["heartbeat_at"]
+
+        assert _wait_for_a_newer_heartbeat(job_id, last, timeout=1) is None
+    finally:
+        _cleanup(job_id)
+
+
+def test_a_failed_heartbeat_is_logged_and_retried(monkeypatch, caplog):
+    """A database hiccup costs one beat, not the run's sign of life."""
+    job_id = "test_job_run_heartbeat_outage"
+    _submit(job_id)
+    unreachable = create_engine("postgresql+psycopg2://nobody:none@127.0.0.1:1/none")
+    advanced = []
+
+    def compute_through_an_outage(job_id, work_dir):
+        """Keep the database away until a beat failed, then wait for the next one."""
+        claimed_at = load_row(job_id)["heartbeat_at"]
+        monkeypatch.setattr(DbManager, "_Session", sessionmaker(bind=unreachable))
+        deadline = time.monotonic() + 10
+        while not _heartbeat_failed(caplog) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        monkeypatch.undo()
+        advanced.append(_wait_for_a_newer_heartbeat(job_id, claimed_at) is not None)
+
+    try:
+        status = job_run.run(job_id, compute_through_an_outage, heartbeat_interval=0.2)
+
+        assert _heartbeat_failed(caplog)
+        assert (status, advanced) == ("COMPLETED", [True])
+        # Worker log only: the job log is the database that just failed.
+        assert "failed and is retried" not in job_log.read(job_id)
+    finally:
+        monkeypatch.undo()
+        _cleanup(job_id)
+
+
+def _heartbeat_failed(caplog):
+    """Return whether the run reported a failed heartbeat write."""
+    return any(
+        record.name.startswith("cosmo_ecosystem.job_run")
+        and record.levelname == "WARNING"
+        and "heartbeat" in record.getMessage()
+        for record in caplog.records
+    )
