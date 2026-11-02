@@ -48,3 +48,18 @@ _Avoid_: Restart, rerun
 The log records written during a job's latest job run, kept with the job and
 readable while the run is still going. A new run starts an empty job log.
 _Avoid_: Log file, worker log (the worker log is the worker process's own output)
+
+### Processes
+
+**Domain module**:
+The one module of an app, named by `COSMO_DOMAIN`, that tells the framework
+everything about the domain it needs to assemble a process: its task specs, its
+Celery settings, its excluded log packages and its log retention. Importing it also
+wires the app's Job seams.
+_Avoid_: Plugin (until Layer B exists), wiring module, app config
+
+**Task spec**:
+An app's declaration of one Celery task: the function, its task name, its queue, an
+optional base class and an optional beat schedule. The framework registers, routes
+and schedules the task from this alone.
+_Avoid_: Task registration, task manifest
