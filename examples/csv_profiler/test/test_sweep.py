@@ -7,8 +7,6 @@ import datetime
 from datetime import timedelta
 
 import pytest
-from sqlalchemy import text
-
 from cosmo_ecosystem import job_log, job_run
 from cosmo_ecosystem.db_manager import DbManager
 from cosmo_ecosystem.job_persistence import load_row, update_columns
@@ -16,6 +14,7 @@ from cosmo_ecosystem.tasks.sweep_tasks import sweep_lost_runs
 
 # Wires DbManager.job_table exactly as the worker process has it.
 import csv_profiler.domain  # noqa: F401
+from job_row_helpers import set_heartbeat
 
 LOST_RUN_LINE = "Worker lost: no heartbeat since"
 
@@ -34,18 +33,6 @@ def _queued(job_id):
         }
     )
     job_run.mark_queued(job_id)
-
-
-def _set_heartbeat(job_id, age):
-    """Set job_id's heartbeat to the database's now() minus age, an SQL interval."""
-    with DbManager.session_scope() as session:
-        session.execute(
-            text(
-                "UPDATE jobs SET heartbeat_at = now() - CAST(:age AS interval) "
-                "WHERE job_id = :job_id"
-            ),
-            {"age": age, "job_id": job_id},
-        )
 
 
 @pytest.fixture
@@ -67,12 +54,12 @@ def jobs():
 def test_the_sweep_fails_only_running_rows_whose_heartbeat_stopped(jobs):
     """A dead run ends FAILED; a live, a queued and a finished one are untouched."""
     lost = jobs("test_sweep_lost")
-    _set_heartbeat(lost, "11 minutes")
+    set_heartbeat(lost, "11 minutes")
     live = jobs("test_sweep_live")
-    _set_heartbeat(live, "1 minute")
+    set_heartbeat(live, "1 minute")
     queued = jobs("test_sweep_queued")
     finished = jobs("test_sweep_finished")
-    _set_heartbeat(finished, "11 minutes")
+    set_heartbeat(finished, "11 minutes")
     update_columns(finished, {"status": "COMPLETED"})
 
     swept = sweep_lost_runs()
@@ -93,7 +80,7 @@ def test_the_sweep_fails_only_running_rows_whose_heartbeat_stopped(jobs):
 def test_a_swept_run_says_why_in_its_job_log(jobs):
     """The user learns that the worker was lost, when, and what to do."""
     lost = jobs("test_sweep_says_why")
-    _set_heartbeat(lost, "11 minutes")
+    set_heartbeat(lost, "11 minutes")
     heartbeat = load_row(lost)["heartbeat_at"]
 
     sweep_lost_runs()
@@ -108,7 +95,7 @@ def test_a_swept_run_says_why_in_its_job_log(jobs):
 def test_the_threshold_is_a_parameter(jobs):
     """With no grace at all, any run with a heartbeat counts as lost."""
     recent = jobs("test_sweep_threshold")
-    _set_heartbeat(recent, "1 second")
+    set_heartbeat(recent, "1 second")
 
     assert recent not in sweep_lost_runs()
     assert recent in sweep_lost_runs(threshold=timedelta(0))

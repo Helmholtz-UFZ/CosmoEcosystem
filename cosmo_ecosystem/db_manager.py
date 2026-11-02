@@ -357,12 +357,21 @@ class DbManager:
 
     @classmethod
     def refresh_heartbeat(cls, job_id):
-        """Set the heartbeat of the job's row to now(), if the row is RUNNING."""
+        """Set the heartbeat of the job's row to now(), if a run has claimed it.
+
+        Only a RUNNING row that already has a heartbeat: a re-queued row (no
+        heartbeat) belongs to the next delivery's claim, never to a thread of
+        an older run that is still alive (swept by mistake, then resubmitted).
+        """
         job_table = cls._job_table()
         with cls.session_scope() as session:
             session.execute(
                 update(job_table)
-                .where(job_table.job_id == job_id, job_table.status == "RUNNING")
+                .where(
+                    job_table.job_id == job_id,
+                    job_table.status == "RUNNING",
+                    job_table.heartbeat_at.is_not(None),
+                )
                 .values(heartbeat_at=func.now())
             )
 

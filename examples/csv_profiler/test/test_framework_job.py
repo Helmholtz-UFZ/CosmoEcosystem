@@ -4,16 +4,15 @@ import logging
 import os
 
 import pytest
-from sqlalchemy import text
 
 from cosmo_ecosystem import job_log
 from cosmo_ecosystem.constants import LOG_FILE_NAME
-from cosmo_ecosystem.db_manager import DbManager
 from cosmo_ecosystem.job import Job
 from cosmo_ecosystem.job_log import JobLogHandler
 from cosmo_ecosystem.job_persistence import delete_job, load_row, local_dir
 
 from csv_profiler.pydantic_models import ProfileConfig
+from job_row_helpers import set_heartbeat
 
 
 @pytest.fixture
@@ -31,15 +30,6 @@ def new_job(framework_job, request):
     job = Job(new_job_id=job_id)
     yield job
     delete_job(job_id)
-
-
-def _beat(job_id):
-    """Give job_id's row a heartbeat, as a claimed run has: the database's now()."""
-    with DbManager.session_scope() as session:
-        session.execute(
-            text("UPDATE jobs SET heartbeat_at = now() WHERE job_id = :job_id"),
-            {"job_id": job_id},
-        )
 
 
 def _log_as_the_worker(job_id, message):
@@ -119,7 +109,7 @@ def test_a_submit_handler_that_raises_leaves_the_job_failed_and_says_why(
 
 def test_submit_queues_the_run_with_no_heartbeat(new_job, monkeypatch):
     """A resubmitted job's old heartbeat is gone before the worker sees the message."""
-    _beat(new_job.job_id)
+    set_heartbeat(new_job.job_id)
     row_seen_by_handler = []
 
     def handler(job):
@@ -137,7 +127,7 @@ def test_submit_queues_the_run_with_no_heartbeat(new_job, monkeypatch):
 
 def test_reset_clears_the_heartbeat(new_job):
     """A reset job is PENDING with no trace of its last run's sign of life."""
-    _beat(new_job.job_id)
+    set_heartbeat(new_job.job_id)
 
     new_job.reset()
 
@@ -148,7 +138,7 @@ def test_reset_clears_the_heartbeat(new_job):
 def test_saving_a_job_keeps_its_runs_heartbeat(new_job):
     """A page that saves the job during a run does not write the heartbeat back."""
     job = Job(job_id=new_job.job_id)
-    _beat(new_job.job_id)
+    set_heartbeat(new_job.job_id)
     beat = load_row(new_job.job_id)["heartbeat_at"]
 
     job.save()

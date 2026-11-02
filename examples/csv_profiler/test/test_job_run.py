@@ -7,7 +7,7 @@ import shutil
 import time
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 
@@ -26,6 +26,7 @@ from cosmo_ecosystem.object_storage_manager import (
 import csv_profiler.domain  # noqa: F401
 from csv_profiler.pydantic_models import ProfileConfig
 from csv_profiler.tasks.computation_tasks import profile
+from job_row_helpers import row_and_log, set_heartbeat
 
 SAMPLE_CSV = os.path.join(os.path.dirname(__file__), "sample_mixed.csv")
 CSV_NAME = "sample_mixed.csv"
@@ -56,18 +57,6 @@ def _submit(job_id, input_data=None):
         }
     )
     job_run.mark_queued(job_id)
-
-
-def _set_heartbeat(job_id, age):
-    """Set job_id's heartbeat to the database's now() minus age, an SQL interval."""
-    with DbManager.session_scope() as session:
-        session.execute(
-            text(
-                "UPDATE jobs SET heartbeat_at = now() - CAST(:age AS interval) "
-                "WHERE job_id = :job_id"
-            ),
-            {"age": age, "job_id": job_id},
-        )
 
 
 def _remote_files(job_id):
@@ -401,7 +390,7 @@ def test_mark_queued_makes_the_row_running_with_no_heartbeat():
     job_id = "test_job_run_mark_queued"
     _submit(job_id)
     job_persistence.update_columns(job_id, {"status": "FAILED"})
-    _set_heartbeat(job_id, "11 minutes")
+    set_heartbeat(job_id, "11 minutes")
 
     try:
         job_run.mark_queued(job_id)
@@ -448,26 +437,20 @@ def test_a_won_claim_gives_the_row_a_heartbeat():
         _cleanup(job_id)
 
 
-def _row_and_log(job_id):
-    """Return the job's status, heartbeat and job log, the state a drop must keep."""
-    row = load_row(job_id)
-    return row["status"], row["heartbeat_at"], job_log.read(job_id)
-
-
 def test_a_redelivery_of_a_run_with_a_heartbeat_changes_nothing(caplog):
     """A message redelivered after its worker died does not restart the run."""
     job_id = "test_job_run_redelivered"
     _submit(job_id)
-    _set_heartbeat(job_id, "11 minutes")
+    set_heartbeat(job_id, "11 minutes")
     job_log.append(job_id, "the lost run's last words")
-    before = _row_and_log(job_id)
+    before = row_and_log(job_id)
 
     with caplog.at_level(logging.INFO, logger="cosmo_ecosystem.job_run"):
         status = job_run.run(job_id, _failing_compute)
 
     try:
         assert status is None
-        assert _row_and_log(job_id) == before
+        assert row_and_log(job_id) == before
         drops = [r for r in caplog.records if r.name == "cosmo_ecosystem.job_run"]
         assert len(drops) == 1
         assert job_id in drops[0].getMessage()
@@ -483,11 +466,11 @@ def test_a_delivery_for_a_row_that_is_not_running_changes_nothing(status):
     _submit(job_id)
     job_persistence.update_columns(job_id, {"status": status})
     job_log.append(job_id, "cancelled by user")
-    before = _row_and_log(job_id)
+    before = row_and_log(job_id)
 
     try:
         assert job_run.run(job_id, _failing_compute) is None
-        assert _row_and_log(job_id) == before
+        assert row_and_log(job_id) == before
     finally:
         _cleanup(job_id)
 
@@ -572,3 +555,28 @@ def _heartbeat_failed(caplog):
         and "heartbeat" in record.getMessage()
         for record in caplog.records
     )
+
+
+def test_a_live_runs_heartbeat_never_claims_a_requeued_row():
+    """A run swept by mistake and then resubmitted is not kept alive by the old run.
+
+    The old run's heartbeat thread goes on beating; the re-queued row must still
+    have no heartbeat afterwards, so the new delivery wins its claim.
+    """
+    job_id = "test_job_run_requeued_under_a_live_run"
+    _submit(job_id)
+    seen = []
+
+    def compute_while_swept_and_resubmitted(job_id, work_dir):
+        """Re-queue the row under this live run, let it beat, deliver again."""
+        job_run.mark_queued(job_id)
+        time.sleep(1)  # five heartbeat intervals
+        seen.append(load_row(job_id)["heartbeat_at"])
+        seen.append(job_run.run(job_id, lambda job_id, work_dir: None))
+
+    try:
+        job_run.run(job_id, compute_while_swept_and_resubmitted, heartbeat_interval=0.2)
+
+        assert seen == [None, "COMPLETED"]
+    finally:
+        _cleanup(job_id)
