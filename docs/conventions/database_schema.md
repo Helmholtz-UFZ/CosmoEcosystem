@@ -177,8 +177,8 @@ them exactly so. A missing one fails at runtime, on the first write.
 
 `LogTable` is the one table that lifted cleanly: identical in all three code
 bases, owned by the framework, written by `logger.PostgreSQLHandler` and read by
-the logs page. Rows older than `LOG_RETENTION_DAYS` (60) are purged by the
-maintenance task.
+the logs page. Rows older than the domain module's `log_retention_days` are
+purged by the framework cleanup task, nightly at 03:00.
 
 ### `JobLogTable` (`job_logs`)
 

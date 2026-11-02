@@ -28,18 +28,13 @@ module is still half-initialised.
 See docs/adr/0003-framework-assembles-the-celery-app.md.
 """
 
-import importlib
-import os
-
 from celery import Celery
 from celery.schedules import crontab
 from kombu import Exchange, Queue
 
 from cosmo_ecosystem.celery_config import BaseCeleryConfig
-from cosmo_ecosystem.error_handling import (
-    DomainCeleryConfigInvalid,
-    DomainNotConfigured,
-)
+from cosmo_ecosystem.domain import load_domain
+from cosmo_ecosystem.error_handling import DomainCeleryConfigInvalid
 from cosmo_ecosystem.task_spec import BeatEntry, TaskSpec
 from cosmo_ecosystem.tasks.maintenance_tasks import cleanup_task
 from cosmo_ecosystem.tasks.test_tasks import long_running_test_task
@@ -70,18 +65,6 @@ FRAMEWORK_TASK_SPECS = [
 _app: Celery | None = None
 
 
-def _load_domain():
-    """Import the module ``COSMO_DOMAIN`` names."""
-    try:
-        domain_path = os.environ["COSMO_DOMAIN"]
-    except KeyError as e:
-        raise DomainNotConfigured() from e
-    # A dynamic import, against the top-level-only rule on purpose: only the
-    # deployment knows which app the framework runs (precedent:
-    # job_retention.main).
-    return importlib.import_module(domain_path)
-
-
 def _check_domain_config(config: type[BaseCeleryConfig]) -> None:
     """Reject a domain config that sets a setting the task specs own.
 
@@ -100,7 +83,7 @@ def _queue(name: str) -> Queue:
 
 def _assemble() -> Celery:
     """Build the process's Celery app from the domain module."""
-    domain = _load_domain()
+    domain = load_domain()
     config = domain.celery_config
     _check_domain_config(config)
 
