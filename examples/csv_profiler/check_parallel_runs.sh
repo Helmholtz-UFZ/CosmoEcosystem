@@ -9,14 +9,17 @@
 # (<main clone>.wt/parallel-check-probe), so only committed changes take part on that
 # side, and removes it with `git worktree remove` at the end.
 #
-# Usage: ./check_parallel_runs.sh [TEST_PATH]
-#   TEST_PATH defaults to the e2e suite: it starts the Dash server and the Celery
-#   worker and goes through Postgres, object storage and Redis, so a shared port or
-#   container on any of them breaks it.
+# Usage: ./check_parallel_runs.sh [TEST_PATHS]
+#   TEST_PATHS (one argument, space-separated) defaults to test_env followed by the
+#   e2e suite. The e2e suite starts the Dash server and the Celery worker and goes
+#   through Postgres, object storage and Redis, so a shared port or container on any
+#   of them breaks it. test_env comes first because it loads every env file: if it
+#   leaked env_test's slot ports into the session, the worker started after it would
+#   go to the wrong Redis.
 
 set -u
 
-SUBSET="${1:-test/test_e2e.py}"
+SUBSET="${1:-test/test_env.py test/test_e2e.py}"
 EXAMPLE_DIR="examples/csv_profiler"
 
 HERE=$(cd "$(dirname "$0")" && pwd -P)

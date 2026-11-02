@@ -2,9 +2,11 @@
 
 import logging
 import os
+import pathlib
 import shutil
 from typing import List
 
+import pytest
 from dotenv import load_dotenv
 
 from cosmo_ecosystem.config import env_vars, getenv
@@ -40,7 +42,24 @@ def _test_single_env_file(env_filename: str, logger, additional_lines: List[str]
         logging.info(getenv(env_var))
 
 
-def test_all_env_files(logger):
+@pytest.fixture
+def restored_env():
+    """Put the run's .env and environment back after the test.
+
+    The test overwrites .env and reloads os.environ from fixed env files. run_pytest.sh
+    writes per-run ports into .env, and later tests (and the Celery worker, which
+    inherits os.environ) must keep using them, not env_test's slot ports.
+    """
+    env_file = pathlib.Path(".env")
+    saved_file = env_file.read_bytes()
+    saved_environ = dict(os.environ)
+    yield
+    env_file.write_bytes(saved_file)
+    os.environ.clear()
+    os.environ.update(saved_environ)
+
+
+def test_all_env_files(logger, restored_env):
     """Test all environment files at once."""
     env_files = [
         "env_dev",
