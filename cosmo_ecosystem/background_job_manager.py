@@ -12,7 +12,7 @@ from celery.result import AsyncResult
 from kombu.exceptions import OperationalError
 
 from cosmo_ecosystem import celery_app
-from cosmo_ecosystem.celery_app import NAME_CLEANUP_TASK, NAME_TEST_TASK
+from cosmo_ecosystem.celery_app import NAME_TEST_TASK
 
 log = logging.getLogger(__name__)
 
@@ -262,30 +262,6 @@ class BackgroundJobManager:
             return result.id, False
         except (OperationalError, CeleryError) as e:
             log.error(f"Failed to submit test task: {e}")
-            return None, True
-
-    def submit_cleanup_task(self) -> tuple[str | None, bool]:
-        """Submit a maintenance cleanup task to the Celery queue.
-
-        Returns:
-            tuple: (celery_task_id, failed_boolean)
-                   celery_task_id is None if submission failed
-        """
-        try:
-            result = self.app.send_task(
-                NAME_CLEANUP_TASK,
-                queue="default",
-            )
-            # Store task name in Redis for revoked task retrieval
-            self.app.backend.client.set(
-                f"task_name:{result.id}",
-                NAME_CLEANUP_TASK,
-                ex=86400,  # 24 hour TTL
-            )
-            log.info(f"Submitted cleanup task with task_id={result.id}")
-            return result.id, False
-        except (OperationalError, CeleryError) as e:
-            log.error(f"Failed to submit cleanup task: {e}")
             return None, True
 
 

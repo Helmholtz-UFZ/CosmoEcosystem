@@ -1,6 +1,5 @@
 """Job retention: when a job expires, and what deleting a job means."""
 
-import importlib
 import logging
 import os
 import shutil
@@ -16,7 +15,8 @@ from cosmo_ecosystem.config import (
 )
 from cosmo_ecosystem.constants import DAYS_DELETE_NOT_SUBMITTED, DAYS_DELETE_SUBMITTED
 from cosmo_ecosystem.db_manager import DbManager
-from cosmo_ecosystem.error_handling import JobCleanupFailed
+from cosmo_ecosystem.domain import load_domain
+from cosmo_ecosystem.error_handling import DomainNotConfigured, JobCleanupFailed
 from cosmo_ecosystem import job_persistence
 from cosmo_ecosystem.object_storage_manager import (
     bucket_exists,
@@ -170,26 +170,21 @@ def find_orphaned_prefixes() -> list[str]:
     return sorted(list_top_level_prefixes() - DbManager.list_job_ids())
 
 
-USAGE = "Usage: python -m cosmo_ecosystem.job_retention <module setting DbManager.job_table>"  # noqa: E501
+USAGE = "Usage: COSMO_DOMAIN=<app>.domain python -m cosmo_ecosystem.job_retention"
 
 
-def main(argv: list[str] | None = None):
+def main():
     """Print the orphaned remote prefixes for manual review; delete nothing.
 
-    Args:
-        argv: One module of the app that assigns ``DbManager.job_table`` on
-            import (e.g. ``<app>.celery_app``). Defaults to the command
-            line arguments.
+    The app's domain module, named by ``COSMO_DOMAIN`` as in the worker and the
+    web process, assigns ``DbManager.job_table`` on import.
     """
-    if argv is None:
-        argv = sys.argv[1:]
-    if len(argv) != 1:
+    try:
+        load_domain()
+    except DomainNotConfigured as error:
+        print(error)
         print(USAGE)
         sys.exit(1)
-    (job_table_module,) = argv
-    # A dynamic import, against the top-level-only rule on purpose: only the
-    # operator knows which app module configures the job table.
-    importlib.import_module(job_table_module)
     # A shell, unlike a pod, has no rclone remote until something writes it.
     setup_remote()
     # Not created here: the report is read-only, and a missing bucket may just

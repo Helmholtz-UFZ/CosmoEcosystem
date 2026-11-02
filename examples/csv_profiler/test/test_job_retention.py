@@ -7,17 +7,19 @@ import time
 
 import pytest
 
+import csv_profiler.domain
+
 from cosmo_ecosystem.config import (
     JOB_WORK_DIR_TEMPLATE,
     OBJECT_STORAGE_BUCKET,
     OBJECT_STORAGE_REMOTE_NAME,
 )
 from cosmo_ecosystem.constants import DAYS_DELETE_NOT_SUBMITTED, DAYS_DELETE_SUBMITTED
-from cosmo_ecosystem.db_manager import DbManager
+from cosmo_ecosystem.db_manager import DbManager, LogTable
 from cosmo_ecosystem.error_handling import JobCleanupFailed, JobDeletionFailed
 from cosmo_ecosystem.job_persistence import delete_job, delete_jobs
 from cosmo_ecosystem.job_retention import clean_up_jobs
-from cosmo_ecosystem import job_retention, object_storage_manager
+from cosmo_ecosystem import celery_app, job_retention, object_storage_manager
 from cosmo_ecosystem.object_storage_manager import (
     ObjectStorageError,
     delete_directory_from_storage,
@@ -26,8 +28,6 @@ from cosmo_ecosystem.object_storage_manager import (
 )
 
 FILE_NAME = "result.csv"
-# The csv_profiler module that assigns DbManager.job_table on import.
-APP_JOB_TABLE_MODULE = "csv_profiler.domain"
 CONTENT = "col_a,col_b\n1,2\n"
 
 
@@ -352,6 +352,58 @@ def test_cleanup_reports_what_it_did():
             _cleanup(job_id)
 
 
+def _seed_log(message, *, days_old):
+    """Insert a log row written days_old days ago."""
+    with DbManager.session_scope() as session:
+        session.add(
+            LogTable(
+                timestamp=datetime.datetime.now() - datetime.timedelta(days=days_old),
+                pid=0,
+                level="INFO",
+                module="test_cleanup",
+                message=message,
+            )
+        )
+
+
+def _logged_on(days_old):
+    """Return the messages logged by this test days_old days ago."""
+    day = (datetime.date.today() - datetime.timedelta(days=days_old)).isoformat()
+    return {
+        row["message"]
+        for row in DbManager.query_logs(day, 0, 0, 23, 59, ["INFO"])
+        if row["module"] == "test_cleanup"
+    }
+
+
+def test_the_nightly_cleanup_applies_the_domain_log_retention_and_reports(
+    monkeypatch,
+):
+    """The scheduled task: logs past the domain's retention go, then jobs.
+
+    Run through the assembled app, as Beat triggers it. The retention is the
+    domain module's, so a changed value here must move the cutoff.
+    """
+    monkeypatch.setattr(csv_profiler.domain, "log_retention_days", 10)
+    expired_id = "test_nightly_cleanup_expired"
+    _seed_row(expired_id, days_old=DAYS_DELETE_NOT_SUBMITTED)
+    _seed_log("past retention", days_old=11)
+    _seed_log("within retention", days_old=9)
+
+    try:
+        cleanup = celery_app.get_app().tasks[celery_app.NAME_CLEANUP_TASK]
+        summary = cleanup.apply().get()
+
+        assert _logged_on(11) == set()
+        assert _logged_on(9) == {"within retention"}
+        assert expired_id in summary["deleted_ids"]
+        assert summary["failed_ids"] == []
+    finally:
+        _cleanup(expired_id)
+        with DbManager.session_scope() as session:
+            session.query(LogTable).filter_by(module="test_cleanup").delete()
+
+
 def test_cleaning_with_a_zero_day_period_removes_todays_unsubmitted_jobs():
     """The dashboard "Clean": drafts go at once, submitted jobs stay."""
     draft_id = "test_cleanup_clean_draft"
@@ -405,7 +457,7 @@ def test_orphan_report_lists_rowless_prefixes_and_changes_nothing(capsys):
     before = _bucket_contents()
 
     try:
-        job_retention.main([APP_JOB_TABLE_MODULE])
+        job_retention.main()
 
         # Whole lines, so a word of the banner can never pass for a prefix.
         listed = capsys.readouterr().out.splitlines()
@@ -419,19 +471,23 @@ def test_orphan_report_lists_rowless_prefixes_and_changes_nothing(capsys):
 
 def test_orphan_report_warns_that_a_shared_bucket_has_other_owners(capsys):
     """On a shared bucket a listed prefix may be the other database's job."""
-    job_retention.main([APP_JOB_TABLE_MODULE])
+    job_retention.main()
 
     out = capsys.readouterr().out
     assert "Nothing was deleted" in out
     assert "may belong to that database" in out
 
 
-def test_orphan_report_without_the_app_module_prints_usage(capsys):
-    """Without the module the report cannot know the job table, so it stops."""
-    with pytest.raises(SystemExit):
-        job_retention.main([])
+def test_orphan_report_without_cosmo_domain_names_the_variable(monkeypatch, capsys):
+    """Without the domain the report cannot know the job table, so it stops."""
+    monkeypatch.delenv("COSMO_DOMAIN")
 
-    assert "Usage" in capsys.readouterr().out
+    with pytest.raises(SystemExit):
+        job_retention.main()
+
+    out = capsys.readouterr().out
+    assert "COSMO_DOMAIN" in out
+    assert "Usage" in out
 
 
 def test_orphan_report_names_a_missing_bucket_instead_of_crashing(monkeypatch, capsys):
@@ -441,7 +497,7 @@ def test_orphan_report_names_a_missing_bucket_instead_of_crashing(monkeypatch, c
         monkeypatch.setattr(module, "OBJECT_STORAGE_BUCKET", "no-such-bucket")
 
     with pytest.raises(SystemExit):
-        job_retention.main([APP_JOB_TABLE_MODULE])
+        job_retention.main()
 
     assert "no-such-bucket" in capsys.readouterr().out
     assert not object_storage_manager.bucket_exists()

@@ -6,8 +6,6 @@ queues and the beat schedule are not settings: ``cosmo_ecosystem.celery_app``
 derives them from the task specs.
 """
 
-from celery.schedules import crontab
-
 from cosmo_ecosystem.config import REDIS_DB, REDIS_HOST, REDIS_PASSWORD, REDIS_PORT
 
 
@@ -103,14 +101,6 @@ class BaseCeleryConfig:
     beat_schedule_filename = (
         "/tmp/celerybeat-schedule"  # Use tmp directory to avoid permission issues
     )
-
-    beat_schedule = {
-        "cleanup-at-3am": {
-            "task": "cosmo_ecosystem.tasks.maintenance_tasks.cleanup",
-            "schedule": crontab(minute=0, hour=3),
-            "options": {"queue": "maintenance"},
-        },
-    }
 
 
 # Global memory management constants
