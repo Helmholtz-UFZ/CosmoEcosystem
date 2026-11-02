@@ -5,25 +5,16 @@ assembles from the domain module. Task registration lives there, not here.
 """
 
 import logging
-from logging.config import dictConfig
 
 from celery import Celery
 from celery.exceptions import CeleryError
 from celery.result import AsyncResult
-from celery.signals import worker_process_init
 from kombu.exceptions import OperationalError
 
 from cosmo_ecosystem import celery_app
 from cosmo_ecosystem.celery_app import NAME_CLEANUP_TASK, NAME_TEST_TASK
-from cosmo_ecosystem.logger import get_logger_config_worker
 
 log = logging.getLogger(__name__)
-
-
-@worker_process_init.connect
-def configure_worker_logging(sender=None, conf=None, **kwargs):
-    """Configure database logging for Celery worker processes."""
-    dictConfig(get_logger_config_worker())
 
 
 class BackgroundJobManager:

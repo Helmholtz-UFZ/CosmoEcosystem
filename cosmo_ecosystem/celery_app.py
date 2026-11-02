@@ -17,7 +17,9 @@ path, ``<app>.domain`` by convention). That **domain module** exposes:
 - ``celery_config``: a ``BaseCeleryConfig`` subclass holding domain settings
   only (timezone, time limits). It must not set ``task_routes`` or
   ``beat_schedule``: both are derived from the task specs;
-- ``excluded_log_packages``: tuple of package names muted in worker logging;
+- ``excluded_log_packages``: tuple of package names muted in worker logging
+  (assembly connects ``worker_process_init`` for it; no framework import
+  connects a signal);
 - ``log_retention_days``: int, how long the framework cleanup keeps log rows.
 
 Importing the domain module also wires the app's Job seams and
@@ -30,9 +32,11 @@ See docs/adr/0003-framework-assembles-the-celery-app.md.
 
 import importlib
 import os
+from logging.config import dictConfig
 
 from celery import Celery
 from celery.schedules import crontab
+from celery.signals import worker_process_init
 from kombu import Exchange, Queue
 
 from cosmo_ecosystem.celery_config import BaseCeleryConfig
@@ -40,6 +44,7 @@ from cosmo_ecosystem.error_handling import (
     DomainCeleryConfigInvalid,
     DomainNotConfigured,
 )
+from cosmo_ecosystem.logger import get_logger_config_worker
 from cosmo_ecosystem.task_spec import BeatEntry, TaskSpec
 from cosmo_ecosystem.tasks.maintenance_tasks import cleanup_task
 from cosmo_ecosystem.tasks.test_tasks import long_running_test_task
@@ -98,6 +103,25 @@ def _queue(name: str) -> Queue:
     return Queue(name, Exchange(name, type="direct"), routing_key=name)
 
 
+def _connect_worker_logging(excluded_packages: tuple[str, ...]) -> None:
+    """Configure logging in every worker process, muting ``excluded_packages``.
+
+    Connected here, during assembly, never at import: when the framework
+    connected it at import, both apps disconnected it and connected their own,
+    and the effective config depended on import order.
+    """
+
+    def configure_worker_logging(sender=None, **kwargs):
+        dictConfig(get_logger_config_worker(excluded_packages))
+
+    # weak=False: the closure has no other reference and would be collected.
+    worker_process_init.connect(
+        configure_worker_logging,
+        weak=False,
+        dispatch_uid="cosmo_ecosystem.configure_worker_logging",
+    )
+
+
 def _assemble() -> Celery:
     """Build the process's Celery app from the domain module."""
     domain = _load_domain()
@@ -130,6 +154,7 @@ def _assemble() -> Celery:
             if spec.beat is not None
         },
     )
+    _connect_worker_logging(tuple(domain.excluded_log_packages))
     return app
 
 

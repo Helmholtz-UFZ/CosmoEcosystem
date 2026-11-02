@@ -165,3 +165,76 @@ def test_importing_the_framework_reads_no_domain(tmp_path):
     )
 
     assert result.returncode == 0, result.stderr
+
+
+# Fires worker_process_init as the prefork pool does in each child, before and
+# after assembly, and reports whether the root logger mutes the domain's
+# excluded package. The PostgreSQL handler is replaced: there is no database
+# here, and the test is about which packages the config mutes, not where it
+# writes.
+WORKER_LOGGING = """
+import json
+import logging
+
+from celery.signals import worker_process_init
+
+import cosmo_ecosystem.logger
+
+
+class NoDatabaseHandler(logging.Handler):
+    def __init__(self, connection_params):
+        super().__init__()
+
+    def emit(self, record):
+        pass
+
+
+cosmo_ecosystem.logger.PostgreSQLHandler = NoDatabaseHandler
+
+import cosmo_ecosystem.background_job_manager  # noqa: E402
+import fake_domain  # noqa: E402
+from cosmo_ecosystem import celery_app  # noqa: E402
+
+
+def muted(name):
+    record = logging.LogRecord(name, logging.INFO, "x.py", 0, "msg", None, None)
+    return not logging.getLogger().filter(record)
+
+
+worker_process_init.send(sender=None)
+before = muted("noisy_package.sub")
+
+celery_app.get_app()
+celery_app.get_app()
+worker_process_init.send(sender=None)
+
+print(json.dumps({
+    "muted_before_assembly": before,
+    "muted_after_assembly": muted("noisy_package.sub"),
+    "others_pass": not muted("fake_domain"),
+    "receivers": len(worker_process_init.receivers),
+}))
+"""
+
+
+@pytest.fixture
+def worker_logging(tmp_path):
+    result = _run(tmp_path, WORKER_LOGGING)
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout.strip().splitlines()[-1])
+
+
+def test_importing_the_framework_and_domain_configures_no_worker_logging(
+    worker_logging,
+):
+    """No framework import connects worker_process_init behind the app's back."""
+    assert not worker_logging["muted_before_assembly"]
+
+
+def test_worker_processes_mute_the_domains_excluded_packages(worker_logging):
+    assert worker_logging["muted_after_assembly"]
+    assert worker_logging["others_pass"]
+
+
+def test_assembly_connects_the_worker_logging_handler_once(worker_logging):
+    assert worker_logging["receivers"] == 1
