@@ -174,6 +174,20 @@ class DomainCeleryConfigInvalid(Exception):
         )
 
 
+class DomainCeleryConfigNotBase(Exception):
+    """Raised when a domain's ``celery_config`` is no ``BaseCeleryConfig`` subclass."""
+
+    def __init__(self, config: object):
+        """Format the error message with the offending object."""
+        self.config = config
+        super().__init__(
+            f"The domain's celery_config is {config!r}, not a subclass of "
+            "cosmo_ecosystem.celery_config.BaseCeleryConfig. The framework "
+            "defaults (broker, result backend, serialisation) only reach a "
+            "domain through that base class."
+        )
+
+
 USE_ERROR_MESSAGE = "use_error_message"
 """Sentinel message: show ``str(error)`` to the user instead of a fixed text.
 

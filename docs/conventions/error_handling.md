@@ -112,6 +112,12 @@ never touched. `test_error_handling.py` pins that.
 - `WrongCeleryTaskId(task_id)` - Invalid Celery task ID
 - `JobTableNotConfigured()` - `DbManager.job_table` was never assigned; see
   [database schema](database_schema.md#jobcolumns-the-framework-supplies-columns-the-app-supplies-the-table)
+- `DomainNotConfigured()` - `COSMO_DOMAIN` is unset on first access to the Celery app;
+  see [domain_module.md](domain_module.md)
+- `DomainCeleryConfigInvalid(setting)` - the domain's `celery_config` sets
+  `task_routes` or `beat_schedule`, which the task specs own
+- `DomainCeleryConfigNotBase(config)` - the domain's `celery_config` is not a
+  `BaseCeleryConfig` subclass
 
 ---
 

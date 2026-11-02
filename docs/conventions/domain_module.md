@@ -21,7 +21,11 @@ circular import that points away from the cause.
     or disconnects no signal ([framework_page_imports.md](framework_page_imports.md), failure 4).
   - `log_retention_days`: how long the framework cleanup keeps log rows.
 - **`celery_config` never sets `task_routes` or `beat_schedule`.** Both come from the
-  task specs; assembly rejects a config that sets either.
+  task specs; assembly rejects a config that sets either. It also rejects one that is not a
+  `BaseCeleryConfig` subclass (`DomainCeleryConfigNotBase`).
+- **The queue is named in the task spec only.** Submissions do not pass `queue=`: the
+  assembled `task_routes` send each task name to its spec's queue. `submit_job` and
+  `submit_named_job` take `queue` as an optional override for a single call.
 - **Every task function takes `self` first.** Every task spec is registered with
   `bind=True`.
 - **The domain module wires the Job seams and `DbManager.job_table` on import.** The
@@ -48,7 +52,8 @@ def submit_computation_job(job) -> tuple[str | None, bool]:
     # Looked up at call time: binding it at import would assemble the Celery app
     # while <app>.domain, which imports this module, is still half-imported.
     manager = cosmo_ecosystem.background_job_manager.background_job_manager
-    return manager.submit_job(NAME_COMPUTATION_TASK, job.job_id, queue="computation")
+    # No queue: the task's spec in <app>.domain names it, and the routes follow.
+    return manager.submit_job(NAME_COMPUTATION_TASK, job.job_id)
 ```
 
 ### Don't

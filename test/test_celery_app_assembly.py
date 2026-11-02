@@ -81,10 +81,15 @@ print(json.dumps({
 """
 
 
-def _run(tmp_path, script, *, domain="fake_domain", config_extra=""):
-    """Run ``script`` in a fresh interpreter with the fake domain importable."""
+def _run(tmp_path, script, *, domain="fake_domain", config_extra="", domain_extra=""):
+    """Run ``script`` in a fresh interpreter with the fake domain importable.
+
+    ``domain_extra`` is appended to the domain module, after its own attributes,
+    so it can replace one of them.
+    """
     (tmp_path / "fake_domain.py").write_text(
         FAKE_DOMAIN.format(config_extra=textwrap.indent(config_extra, "    "))
+        + domain_extra
     )
     env = {**os.environ, "PYTHONPATH": str(tmp_path)}
     env.pop("COSMO_DOMAIN", None)
@@ -165,6 +170,23 @@ def test_domain_config_must_not_set_routes_or_schedule(tmp_path, setting):
     assert setting in result.stderr
 
 
+@pytest.mark.parametrize(
+    "replacement",
+    [
+        "class PlainConfig:\n    timezone = 'UTC'\ncelery_config = PlainConfig",
+        "celery_config = BaseCeleryConfig()",
+    ],
+    ids=["class-outside-the-base", "instance-of-the-base"],
+)
+def test_domain_config_must_subclass_the_base_config(tmp_path, replacement):
+    """The framework defaults only reach a domain through the base class."""
+    result = _run(tmp_path, REPORT, domain_extra=f"\n{replacement}\n")
+
+    assert result.returncode != 0
+    assert "DomainCeleryConfigNotBase" in result.stderr
+    assert "BaseCeleryConfig" in result.stderr
+
+
 def test_unset_cosmo_domain_names_the_variable(tmp_path):
     result = _run(tmp_path, REPORT, domain=None)
 
@@ -182,6 +204,64 @@ def test_importing_the_framework_reads_no_domain(tmp_path):
     )
 
     assert result.returncode == 0, result.stderr
+
+
+# Submits without naming a queue, the way a domain's submissions do, with the
+# broker and the result backend replaced: no service is involved. Reports what
+# the manager passed to ``send_task`` and which queue the app's routes pick for
+# the sent task name.
+SUBMISSION = """
+import json
+from unittest import mock
+
+from celery import Celery
+
+from cosmo_ecosystem.background_job_manager import background_job_manager
+from cosmo_ecosystem.celery_app import NAME_TEST_TASK, celery
+
+sent = []
+
+
+def send_task(name, args=None, **kwargs):
+    sent.append((name, kwargs))
+    return mock.Mock(id="task-id")
+
+
+def routed_queue(name):
+    return celery.amqp.router.route({}, name)["queue"].name
+
+
+with (
+    mock.patch.object(celery, "send_task", side_effect=send_task),
+    mock.patch.object(Celery, "backend", new_callable=mock.PropertyMock),
+):
+    background_job_manager.submit_job("fake_domain.compute", "job-1")
+    background_job_manager.submit_named_job("fake_domain.refresh")
+    background_job_manager.submit_test_task()
+    background_job_manager.submit_job("fake_domain.compute", "job-2", queue="other")
+
+print(json.dumps({
+    "explicit_queue": [kwargs["queue"] if "queue" in kwargs else None for _, kwargs in sent],
+    "routed": [routed_queue(name) for name, _ in sent[:3]],
+}))
+"""
+
+
+@pytest.fixture
+def submission(tmp_path):
+    result = _run(tmp_path, SUBMISSION)
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout.strip().splitlines()[-1])
+
+
+def test_a_submission_without_a_queue_goes_where_the_task_spec_routes_it(submission):
+    """Queue comes only from the task spec; nobody passes it at the call site."""
+    assert submission["explicit_queue"][:3] == [None, None, None]
+    assert submission["routed"] == ["crunch", "nightly", "test"]
+
+
+def test_an_explicit_queue_still_overrides_the_route(submission):
+    assert submission["explicit_queue"][3] == "other"
 
 
 # Fires worker_process_init as the prefork pool does in each child, before and

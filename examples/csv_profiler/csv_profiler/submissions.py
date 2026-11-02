@@ -14,7 +14,9 @@ NAME_COMPUTATION_TASK = "csv_profiler.tasks.computation_tasks.start_computation"
 
 
 def submit_computation_job(job) -> tuple[str | None, bool]:
-    """Submit a CSV profiling job to the computation queue.
+    """Submit a CSV profiling job.
+
+    The queue comes from the task's spec in ``csv_profiler.domain``, not from here.
 
     ``track_task_name=True``: the worker-management page reads the stored name to
     label a revoked task, which would otherwise show up as "Unknown".
@@ -29,6 +31,5 @@ def submit_computation_job(job) -> tuple[str | None, bool]:
     return manager.submit_job(
         NAME_COMPUTATION_TASK,
         job.job_id,
-        queue="computation",
         track_task_name=True,
     )

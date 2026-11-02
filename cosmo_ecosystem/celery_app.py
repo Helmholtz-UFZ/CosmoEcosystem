@@ -39,7 +39,10 @@ from kombu import Exchange, Queue
 
 from cosmo_ecosystem.celery_config import BaseCeleryConfig
 from cosmo_ecosystem.domain import load_domain
-from cosmo_ecosystem.error_handling import DomainCeleryConfigInvalid
+from cosmo_ecosystem.error_handling import (
+    DomainCeleryConfigInvalid,
+    DomainCeleryConfigNotBase,
+)
 from cosmo_ecosystem.logger import get_logger_config_worker
 from cosmo_ecosystem.task_spec import BeatEntry, TaskSpec
 from cosmo_ecosystem.tasks.maintenance_tasks import cleanup_task
@@ -72,7 +75,9 @@ _app: Celery | None = None
 
 
 def _check_domain_config(config: type[BaseCeleryConfig]) -> None:
-    """Reject a domain config that sets a setting the task specs own."""
+    """Reject a domain config that breaks the contract (base class, spec settings)."""
+    if not (isinstance(config, type) and issubclass(config, BaseCeleryConfig)):
+        raise DomainCeleryConfigNotBase(config)
     for setting in SPEC_OWNED_SETTINGS:
         if hasattr(config, setting):
             raise DomainCeleryConfigInvalid(setting)

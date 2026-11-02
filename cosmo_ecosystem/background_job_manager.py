@@ -28,7 +28,7 @@ class BackgroundJobManager:
         self,
         task_name: str,
         args: list,
-        queue: str,
+        queue: str | None,
         *,
         track_task_name: bool,
         **opts,
@@ -38,7 +38,8 @@ class BackgroundJobManager:
         Args:
             task_name: Dotted Celery task name (must match the registered name)
             args: Positional args passed to the task
-            queue: Target queue name
+            queue: Explicit queue, or None to let the app's ``task_routes`` (derived
+                from the task specs) decide
             track_task_name: Store the task name in the result backend
             **opts: Passed through to ``Celery.send_task``; an explicit key
                 overrides the framework default for it
@@ -47,7 +48,10 @@ class BackgroundJobManager:
             tuple: (celery_task_id, failed_boolean)
                    celery_task_id is None if submission failed
         """
+        # No "queue" key at all when None: the routes then pick the queue.
+        queue_opts = {} if queue is None else {"queue": queue}
         send_opts = {
+            **queue_opts,
             "retry": True,
             "retry_policy": {
                 "max_retries": 3,
@@ -58,7 +62,7 @@ class BackgroundJobManager:
         } | opts
 
         try:
-            result = self.app.send_task(task_name, args=args, queue=queue, **send_opts)
+            result = self.app.send_task(task_name, args=args, **send_opts)
             if track_task_name:
                 # Store task name in Redis for revoked task retrieval
                 self.app.backend.client.set(
@@ -76,7 +80,7 @@ class BackgroundJobManager:
         self,
         task_name: str,
         job_id: str,
-        queue: str = "default",
+        queue: str | None = None,
         *,
         track_task_name: bool = True,
         **opts,
@@ -91,7 +95,9 @@ class BackgroundJobManager:
         Args:
             task_name: Dotted Celery task name (must match the registered name)
             job_id: The job id, passed to the task as its only positional arg
-            queue: Target queue name
+            queue: Leave unset: the queue comes from the task's spec, through the
+                app's ``task_routes``. Pass one only to override that route for a
+                single submission.
             track_task_name: Store ``task_name`` under ``task_name:<task_id>``
                 in the result backend. The worker-management page reads that key
                 when a revoked task no longer reports its own name; without it
@@ -115,7 +121,7 @@ class BackgroundJobManager:
         self,
         task_name: str,
         args: list | None = None,
-        queue: str = "default",
+        queue: str | None = None,
     ) -> tuple[str | None, bool]:
         """Submit a named task to a Celery queue with retry + revoke bookkeeping.
 
@@ -126,7 +132,8 @@ class BackgroundJobManager:
         Args:
             task_name: Dotted Celery task name (must match the registered name)
             args: Positional args passed to the task
-            queue: Target queue name
+            queue: Leave unset: the queue comes from the task's spec, through the
+                app's ``task_routes``. Pass one only to override that route.
 
         Returns:
             tuple: (celery_task_id, failed_boolean)
@@ -241,17 +248,15 @@ class BackgroundJobManager:
         log.info(f"Task {task_id} revoked (terminate={terminate})")
 
     def submit_test_task(self) -> tuple[str | None, bool]:
-        """Submit a test sleep task to the Celery queue.
+        """Submit a test sleep task, routed by its task spec.
 
         Returns:
             tuple: (celery_task_id, failed_boolean)
                    celery_task_id is None if submission failed
         """
         try:
-            result = self.app.send_task(
-                NAME_TEST_TASK,
-                queue="test",
-            )
+            # No queue: the test task's spec routes it.
+            result = self.app.send_task(NAME_TEST_TASK)
             # Store task name in Redis for revoked task retrieval
             self.app.backend.client.set(
                 f"task_name:{result.id}",
