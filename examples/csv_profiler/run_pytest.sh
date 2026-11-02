@@ -201,7 +201,13 @@ EOF
     test_compose up postgres object-storage redis -d --quiet-pull
 
     # Wait for services with retry logic
-    check_service 'docker exec "$TEST_POSTGRES" pg_isready -q 2>/dev/null' "PostgreSQL"
+    # -h 127.0.0.1 forces the TCP check. Without it pg_isready probes the Unix
+    # socket, which already answers during initdb's temporary server phase —
+    # that server sets listen_addresses='' and serves no TCP at all. The check
+    # then reports "ready" while the endpoint the tests use (localhost
+    # :POSTGRES_PORT) is still down, and the first query dies with "server closed
+    # the connection unexpectedly". Same fix as in COSMONAUT's run_pytest.sh.
+    check_service 'docker exec "$TEST_POSTGRES" pg_isready -q -h 127.0.0.1 2>/dev/null' "PostgreSQL"
     # The compose healthcheck owns the server-specific probe; this only reads its verdict.
     check_service 'docker inspect -f "{{.State.Health.Status}}" "$TEST_OBJECT_STORAGE" 2>/dev/null | grep -qx healthy' "Object storage"
     check_service 'docker exec "$TEST_REDIS" redis-cli ping 2>/dev/null | grep -q PONG' "Redis"
