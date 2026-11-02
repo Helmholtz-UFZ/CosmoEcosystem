@@ -73,7 +73,7 @@ class Job(BaseJob):
     """
 
     # Injected by the application at startup — see UploadJobConfig and the
-    # config-model contract in docs/plan/cosmo-core-package-boundary.md.
+    # config-model contract in docs/conventions/config_model_contract.md.
     # UploadJobConfig, not BaseJobConfig: this class reads and writes
     # `model.upload_file_name` (upload_file, reset, dump_parameters).
     config_model: type[UploadJobConfig] | None = None  # REQUIRED; fail-loud if unset

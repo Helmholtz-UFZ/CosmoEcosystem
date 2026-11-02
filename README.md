@@ -15,10 +15,6 @@ computation, forms, and workflow pages).
 > belong there. This copy exists so the software has a citable public home,
 > anything pushed here is overwritten by the next mirror sync.
 
-> **Formerly `cosmo-suite`** (and before that `cosmo-framework` / `cosmo-template`).
-> Renamed in v0.9.0; the old GitLab and GitHub paths redirect here, and the Zenodo
-> concept DOI is unchanged.
-
 This repo is the framework's home. It also ships a reference domain,
 [`examples/csv_profiler/`](examples/csv_profiler/), a CSV statistical profiler, that
 depends on the framework and is the recommended starting point for a new app.

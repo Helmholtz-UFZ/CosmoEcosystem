@@ -12,7 +12,7 @@ persists, reloads, and tracks a single uploaded input file without knowing the
 domain. An app adopting `cosmo_ecosystem.job.Job` must therefore subclass
 `UploadJobConfig` and inject it via `Job.config_model` at startup.
 
-See docs/plan/cosmo-core-package-boundary.md (config-model contract).
+See docs/conventions/config_model_contract.md.
 """
 
 import logging
