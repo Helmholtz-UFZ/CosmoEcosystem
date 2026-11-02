@@ -145,6 +145,35 @@ class JobLinkNotConfigured(Exception):
         )
 
 
+class DomainNotConfigured(Exception):
+    """Raised on first access to the Celery app when ``COSMO_DOMAIN`` is unset.
+
+    The process stops there instead of running with framework defaults. See
+    docs/adr/0003-framework-assembles-the-celery-app.md.
+    """
+
+    def __init__(self):
+        """Format the error message with a pointer to the fix."""
+        super().__init__(
+            "COSMO_DOMAIN is not set — it must name the app's domain module as a "
+            "dotted module path (e.g. `<app>.domain`). Set it with ENV in the "
+            "app's Dockerfiles and in its env and compose files."
+        )
+
+
+class DomainCeleryConfigInvalid(Exception):
+    """Raised when a domain's ``celery_config`` sets what the task specs own."""
+
+    def __init__(self, setting: str):
+        """Format the error message with the offending setting."""
+        self.setting = setting
+        super().__init__(
+            f"The domain's celery_config sets {setting}. Routes and the beat "
+            "schedule are derived from the domain's task_specs only: declare the "
+            "queue and beat on each TaskSpec instead."
+        )
+
+
 USE_ERROR_MESSAGE = "use_error_message"
 """Sentinel message: show ``str(error)`` to the user instead of a fixed text.
 

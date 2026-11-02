@@ -1,7 +1,9 @@
 """Base Celery configuration for Cosmo Ecosystem background tasks.
 
-Domains extend routing/scheduling at runtime (e.g. adding their computation
-queue via ``app.conf.task_routes``); this base only knows the framework tasks.
+A domain subclasses this for its own settings (timezone, time limits) and hands
+the subclass to the framework as ``celery_config`` in its domain module. Routes,
+queues and the beat schedule are not settings: ``cosmo_ecosystem.celery_app``
+derives them from the task specs.
 """
 
 from celery.schedules import crontab
@@ -55,10 +57,8 @@ class BaseCeleryConfig:
     result_expires = 3600  # 1 hour
     result_persistent = True
 
-    # Task routing (framework tasks only; domains add their own routes at runtime)
-    task_routes = {
-        "cosmo_ecosystem.tasks.maintenance_tasks.*": {"queue": "maintenance"},
-    }
+    # No task_routes here, and none in a domain subclass: cosmo_ecosystem.celery_app
+    # derives routes, the worker's queues and the beat schedule from the task specs.
 
     # Default queue settings
     task_default_queue = "default"

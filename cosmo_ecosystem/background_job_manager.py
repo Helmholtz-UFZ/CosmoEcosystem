@@ -1,7 +1,7 @@
 """Background job manager using Celery for distributed task processing.
 
-Task registration lives in celery_app.py (the worker entry point) to avoid a
-circular import: tasks/*.py → job → this module → tasks/*.py.
+The manager wraps the process's one Celery app, which ``cosmo_ecosystem.celery_app``
+assembles from the domain module. Task registration lives there, not here.
 """
 
 import logging
@@ -13,13 +13,11 @@ from celery.result import AsyncResult
 from celery.signals import worker_process_init
 from kombu.exceptions import OperationalError
 
-from cosmo_ecosystem.celery_config import BaseCeleryConfig
+from cosmo_ecosystem import celery_app
+from cosmo_ecosystem.celery_app import NAME_CLEANUP_TASK, NAME_TEST_TASK
 from cosmo_ecosystem.logger import get_logger_config_worker
 
 log = logging.getLogger(__name__)
-
-NAME_CLEANUP_TASK = "cosmo_ecosystem.tasks.maintenance_tasks.cleanup"
-NAME_TEST_TASK = "cosmo_ecosystem.tasks.test_tasks.long_running_test"
 
 
 @worker_process_init.connect
@@ -31,14 +29,9 @@ def configure_worker_logging(sender=None, conf=None, **kwargs):
 class BackgroundJobManager:
     """Centralized manager for all background job operations using Celery."""
 
-    def __init__(self):
-        """Initialize the background job manager."""
-        self.app = Celery("cosmo_ecosystem")
-        self.app.config_from_object(BaseCeleryConfig)
-        self.app.conf.update(
-            broker_connection_retry_on_startup=True,
-            broker_connection_retry=True,
-        )
+    def __init__(self, app: Celery):
+        """Wrap ``app``, the process's Celery app."""
+        self.app = app
 
     def _send_task(
         self,
@@ -309,10 +302,14 @@ _background_job_manager = None
 
 
 def __getattr__(name):
-    """Lazy singleton — BackgroundJobManager is created on first access, not on import."""
+    """Lazy singleton — created on first access, not on import.
+
+    It wraps the one Celery app of the process, so the first access assembles
+    that app from the domain module (``COSMO_DOMAIN``).
+    """
     global _background_job_manager
     if name == "background_job_manager":
         if _background_job_manager is None:
-            _background_job_manager = BackgroundJobManager()
+            _background_job_manager = BackgroundJobManager(celery_app.get_app())
         return _background_job_manager
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
