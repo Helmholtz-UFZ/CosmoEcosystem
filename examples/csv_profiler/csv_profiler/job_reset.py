@@ -34,6 +34,8 @@ from csv_profiler.constants import (
     RESET_JOB_STORE_SHARED_ID,
 )
 
+RESET_REFUSED_MESSAGE = "The job is running and cannot be reset. Wait for it to finish."
+
 RESUBMIT_ACTION = "resubmit"
 CHANGE_INPUT_ACTION = "change_input"
 
@@ -79,10 +81,15 @@ def reset_message(action):
 
 
 def reset_job(job_id, action):
-    """Reset the job, submit it if ``action`` says so, and return the path to go to."""
+    """Reset the job, submit it if ``action`` says so, and return the path to go to.
+
+    Returns ``None`` when the job is RUNNING: nothing is reset or submitted then,
+    and the caller shows ``RESET_REFUSED_MESSAGE``.
+    """
     spec = _reset_action(action)
     job = Job(job_id=job_id)
-    job.reset()
+    if not job.reset():
+        return None
     if spec.submit:
         job.submit()
     return spec.path(job.job_id)
@@ -151,6 +158,7 @@ def register_reset_callbacks():
         Output(URL_LOCATION_SHARED_ID, "href", allow_duplicate=True),
         Output(RESET_JOB_STORE_SHARED_ID, "data", allow_duplicate=True),
         Output(LOADING_OVERLAY_MODAL_SHARED_ID, "is_open", allow_duplicate=True),
+        Output(RESET_BODY_DIV_SHARED_ID, "children", allow_duplicate=True),
         Input(RESET_CONFIRM_BUTTON_SHARED_ID, "n_clicks"),
         Input(RESET_CANCEL_BUTTON_SHARED_ID, "n_clicks"),
         State(RESET_JOB_STORE_SHARED_ID, "data"),
@@ -165,10 +173,25 @@ def register_reset_callbacks():
         }
 
         if RESET_CANCEL_BUTTON_SHARED_ID in triggered_ids:
-            return False, dash.no_update, None, dash.no_update
+            return False, dash.no_update, None, dash.no_update, dash.no_update
 
         if RESET_CONFIRM_BUTTON_SHARED_ID in triggered_ids:
             path = reset_job(store_data["job_id"], store_data["action"])
-            return False, path, None, False
+            if path is None:
+                # Stay on the page with the modal open; Cancel closes it.
+                return (
+                    True,
+                    dash.no_update,
+                    dash.no_update,
+                    False,
+                    RESET_REFUSED_MESSAGE,
+                )
+            return False, path, None, False, dash.no_update
 
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        return (
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
+            dash.no_update,
+        )

@@ -1,5 +1,8 @@
 """Test the framework Job's job log and submit against real Postgres and S3."""
 
+import base64
+import datetime
+import json
 import logging
 import os
 import re
@@ -8,11 +11,14 @@ import pytest
 
 from cosmo_ecosystem import job_log, job_run
 from cosmo_ecosystem.constants import LOG_FILE_NAME
+from cosmo_ecosystem.config import OBJECT_STORAGE_BUCKET, OBJECT_STORAGE_REMOTE_NAME
 from cosmo_ecosystem.db_manager import DbManager
+from cosmo_ecosystem.error_handling import FileValidationError
 from cosmo_ecosystem.job import Job
 from cosmo_ecosystem.job_log import JobLogHandler
 from cosmo_ecosystem.job_persistence import delete_job, load_row, local_dir
 from cosmo_ecosystem.job_persistence import update_columns
+from cosmo_ecosystem.object_storage_manager import get_remote_files
 
 from csv_profiler.pydantic_models import ProfileConfig
 from job_row_helpers import set_heartbeat
@@ -277,3 +283,63 @@ def test_reset_is_refused_while_the_job_runs(new_job):
     assert load_row(new_job.job_id) == before
     assert "a live run" in job_log.read(new_job.job_id)
     assert os.path.exists(os.path.join(local_dir(new_job.job_id), "result.json"))
+
+
+def _remote_names(job_id):
+    """List the names of the objects in job_id's remote prefix."""
+    return set(
+        get_remote_files(
+            f"{OBJECT_STORAGE_REMOTE_NAME}:{OBJECT_STORAGE_BUCKET}/{job_id}"
+        )
+    )
+
+
+def _a_changed_input(job):
+    """Change the in-memory input of job and return its JSON, as save_input writes it."""
+    job.model.upload_file_name = "changed.csv"
+    with open(os.path.join(job.working_dir, "changed.csv"), "w") as f:
+        f.write("a,b\n1,2\n")
+    return job._get_column_data("input_data")
+
+
+def test_saving_the_input_of_a_pending_job_writes_only_the_input(new_job):
+    """The input write leaves start date, submitted mark and status as they are."""
+    update_columns(new_job.job_id, {"start_date": datetime.date(2020, 1, 1)})
+    job = Job(job_id=new_job.job_id)
+    job.start_date = datetime.date.today()  # a stale or new copy must not be written
+    changed = _a_changed_input(job)
+
+    assert job.save_input() is True
+
+    row = load_row(new_job.job_id)
+    assert json.loads(row["input_data"]) == json.loads(changed)
+    assert row["start_date"] == datetime.date(2020, 1, 1)
+    assert (row["status"], row["submitted"]) == ("PENDING", False)
+    assert "changed.csv" in _remote_names(new_job.job_id)
+
+
+@pytest.mark.parametrize("status", ["RUNNING", "COMPLETED", "FAILED"])
+def test_saving_the_input_of_a_job_that_is_not_pending_changes_nothing(new_job, status):
+    """A page loaded while PENDING cannot rewrite the input of a started job."""
+    job = Job(job_id=new_job.job_id)
+    update_columns(new_job.job_id, {"status": status})
+    _a_changed_input(job)
+    before = load_row(new_job.job_id)
+
+    assert job.save_input() is False
+
+    assert load_row(new_job.job_id) == before
+    assert "changed.csv" not in _remote_names(new_job.job_id)
+
+
+def test_uploading_a_file_to_a_running_job_is_refused_and_keeps_its_files(new_job):
+    """An upload cannot delete or replace the files a run is using."""
+    job_run.mark_queued(new_job.job_id)
+    job = Job(job_id=new_job.job_id)
+    before = load_row(new_job.job_id)
+
+    with pytest.raises(FileValidationError, match="PENDING"):
+        job.upload_file("data:text/csv;base64", base64.b64encode(b"a\n1\n"), "new.csv")
+
+    assert load_row(new_job.job_id) == before
+    assert "new.csv" not in _remote_names(new_job.job_id)

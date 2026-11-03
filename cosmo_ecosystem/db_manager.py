@@ -307,6 +307,46 @@ class DbManager:
                 setattr(job, column_name, column_value)
 
     @classmethod
+    def update_input(cls, job_id, columns) -> bool:
+        """Write a job's input columns, only while the job is PENDING.
+
+        One conditional update (``WHERE status = 'PENDING'``). For an existing
+        row it is how input is written: a page or task holding an old copy of
+        the job cannot change the input of a job that started, finished or was
+        reset meanwhile (ADR 0005). It writes the given input columns and
+        nothing else: never ``start_date`` and never ``RUN_OWNED_COLUMNS``.
+
+        Args:
+            job_id: The job whose input to write.
+            columns: Column name to value, input columns only.
+
+        Returns:
+            Whether the row was PENDING and the columns were written.
+
+        Raises:
+            ValueError: If ``columns`` names ``job_id``, ``start_date`` or a
+                run-owned column.
+            JobNotFound: If the job has no row.
+        """
+        not_input = {"job_id", "start_date", *RUN_OWNED_COLUMNS} & set(columns)
+        if not_input:
+            raise ValueError(
+                f"Not input columns of job {job_id}: {', '.join(sorted(not_input))}."
+            )
+        log.debug(f"Update the input of job: {job_id}")
+        job_table = cls._job_table()
+        with cls.session_scope() as session:
+            result = session.execute(
+                update(job_table)
+                .where(job_table.job_id == job_id, job_table.status == "PENDING")
+                .values(**columns)
+            )
+            applied = result.rowcount == 1
+        if not applied:
+            cls._raise_if_no_row(job_id)
+        return applied
+
+    @classmethod
     def queue_run(cls, job_id) -> bool:
         """Queue a run in the job's row; return whether the row allowed it.
 

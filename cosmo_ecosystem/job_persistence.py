@@ -54,6 +54,24 @@ def update_columns(job_id: str, columns: dict) -> None:
     DbManager.update_column(job_id, columns)
 
 
+def update_input(job_id: str, columns: dict) -> bool:
+    """Write only the given input columns of an existing job's row, while PENDING.
+
+    The way input is written onto an existing row (ADR 0005): one conditional
+    update, ``WHERE status = 'PENDING'``, so a job that started, finished or was
+    reset meanwhile keeps its input. No rclone call. Never writes ``start_date``
+    or the run-owned columns (``ValueError``). Creating a new job still inserts,
+    through ``save``.
+
+    Returns:
+        Whether the row was PENDING and the columns were written.
+
+    Raises:
+        JobNotFound: If the job has no row.
+    """
+    return DbManager.update_input(job_id, columns)
+
+
 def work_dir(job_id: str) -> str:
     """Return the job's local work dir, current with its remote prefix.
 

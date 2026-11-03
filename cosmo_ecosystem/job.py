@@ -22,6 +22,7 @@ from cosmo_ecosystem.base_job import BaseJob
 from cosmo_ecosystem.constants import LOG_FILE_NAME
 from cosmo_ecosystem.db_manager import RUN_OWNED_COLUMNS, DbManager
 from cosmo_ecosystem.error_handling import (
+    FileValidationError,
     InvalidJobID,
     JobExists,
     JobNotFound,
@@ -45,6 +46,10 @@ except PackageNotFoundError:
 # Columns the framework Job reads and writes beyond `JobColumns` (see "The
 # extra-column contract" in docs/conventions/database_schema.md).
 REQUIRED_EXTRA_COLUMNS = ("input_data",)
+
+NOT_PENDING_MESSAGE = (
+    "The input can only be changed while the job is PENDING. Reset the job first."
+)
 
 # The job table column that held the log file's text before the job log moved
 # into the `job_logs` table. A table that still has it keeps working: the Job
@@ -274,13 +279,16 @@ class Job(BaseJob):
         """
         safe_name = secure_filename(file_name)
 
+        # Before anything is written or deleted: files of a started job are not
+        # replaced. save_input below is the authoritative, conditional check.
+        if job_persistence.load_row(self.job_id)["status"] != "PENDING":
+            raise FileValidationError(NOT_PENDING_MESSAGE)
+
         # The save below uploads the whole work dir, so it must not hold
         # anything staler than the remote prefix.
         self.working_dir = job_persistence.work_dir(self.job_id)
 
-        if self.model.upload_file_name is not None:
-            self.delete_item(self.model.upload_file_name)
-
+        old_name = self.model.upload_file_name
         decoded = base64.b64decode(content_string)
         file_path = os.path.join(self.working_dir, safe_name)
         with open(file_path, "wb") as f:
@@ -296,8 +304,42 @@ class Job(BaseJob):
                 raise
 
         self.model.upload_file_name = safe_name
-        self.save()
+        if not self.save_input():
+            # The job started between the check above and the write.
+            self.model.upload_file_name = old_name
+            os.remove(file_path)
+            raise FileValidationError(NOT_PENDING_MESSAGE)
+        # After the new file is in storage: a failure leaves an extra file (a
+        # reset deletes it), never a row that names a file that is gone.
+        if old_name is not None and old_name != safe_name:
+            self.delete_item(old_name)
         return safe_name
+
+    def save_input(self) -> bool:
+        """Write the job's input onto its existing row, only while it is PENDING.
+
+        One conditional update of the ``input_data`` column
+        (``job_persistence.update_input``), then ``parameters.json`` and the work
+        dir upload. A job that
+        started, finished or was reset meanwhile keeps its input and its files:
+        nothing is written, nothing is uploaded, and False is returned (ADR 0005).
+        It never writes ``start_date`` or the run-owned columns. The caller
+        pulls the work dir first (``job_persistence.work_dir``) so the upload is
+        not staler than the remote prefix. Creating a job is ``save``.
+
+        Returns:
+            Whether the input was written.
+        """
+        log.debug(f"Save the input of job {self.job_id}")
+        if not job_persistence.update_input(
+            self.job_id, {"input_data": self._get_column_data("input_data")}
+        ):
+            log.debug(f"Job {self.job_id} is not PENDING; its input is kept.")
+            return False
+        # After the guard: a refused write leaves the work dir as it is.
+        self.dump_parameters()
+        job_persistence.upload_work_dir(self.job_id)
+        return True
 
     def _get_column_data(self, name):
         if name == "input_data":
