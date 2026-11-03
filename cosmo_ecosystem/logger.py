@@ -8,6 +8,7 @@ to extend it.
 
 import datetime
 import logging
+import os
 import time
 import warnings
 
@@ -25,6 +26,12 @@ from cosmo_ecosystem.config import (
 format_string = (
     "[%(asctime)s] [PID:%(process)d] %(levelname)s in %(module)s: %(message)s"
 )
+# Pools a forked child inherited from its parent. The parent still owns their
+# sockets: letting the last reference go would garbage-collect the connections,
+# and closing a psycopg2 connection sends the server a Terminate for the
+# session the parent is using. They are kept alive, never closed.
+_INHERITED_POOLS = []
+
 postgres_params = {
     "dbname": POSTGRES_DB,
     "user": POSTGRES_USER,
@@ -34,135 +41,164 @@ postgres_params = {
 }
 
 
+POOL_CONNECT_TIMEOUT_SECONDS = 5
+# After a failed pool build the handler drops records for this long without
+# touching the network: each attempt runs under the handler lock, so every
+# log call in the process would wait for it.
+POOL_RETRY_COOLDOWN_SECONDS = 30
+
+
+class PoolUnavailable(psycopg2.OperationalError):
+    """The pool could not be built a moment ago; records are dropped meanwhile."""
+
+
 class PostgreSQLHandler(logging.Handler):
     """A log handler that writes log records to a PostgreSQL database."""
 
-    def __init__(self, connection_params):
+    def __init__(self, connection_params, clock=time.monotonic):
         """Initialize the handler with PostgreSQL connection parameters.
 
         Args:
             connection_params (dict): Connection parameters for PostgreSQL
                                      (dbname, user, password, host, port)
+            clock: Monotonic clock for the retry cooldown; tests pass their own.
         """
         super().__init__()
         self.connection_params = connection_params
-        # Create a connection pool for better performance
+        # No connection here: dictConfig builds this handler at import, and a
+        # preloading gunicorn master would hand its socket to every forked
+        # worker. The pool is built on first use, once per process.
+        self._connection_pool = None
+        self._pool_pid = None
+        self._clock = clock
+        self._build_failed_at = None
+
+    @property
+    def connection_pool(self):
+        """The pool of the current process, built on first use.
+
+        After a fork the inherited pool shares its sockets with the parent, so a
+        process whose pid differs from the creator's builds its own and parks the
+        inherited one in ``_INHERITED_POOLS``, neither closed nor collected.
+
+        Raises:
+            psycopg2.OperationalError: If PostgreSQL cannot be reached. One
+                attempt, then ``PoolUnavailable`` until the cooldown is over.
+        """
+        # The handler's own lock, an RLock that logging re-creates in a forked
+        # child: a lock of ours held by another thread at fork time would stay
+        # locked there for good. emit already holds it, hence re-entrant.
+        self.acquire()
+        try:
+            if self._connection_pool is None or self._pool_pid != os.getpid():
+                if self._connection_pool is not None:
+                    _INHERITED_POOLS.append(self._connection_pool)
+                    self._connection_pool = None
+                self._build_pool()
+                self._pool_pid = os.getpid()
+            return self._connection_pool
+        finally:
+            self.release()
+
+    def _build_pool(self):
+        """Build the pool, or fail fast while the last build's cooldown runs."""
+        if (
+            self._build_failed_at is not None
+            and self._clock() - self._build_failed_at < POOL_RETRY_COOLDOWN_SECONDS
+        ):
+            raise PoolUnavailable(
+                f"PostgreSQL unreachable, next attempt {POOL_RETRY_COOLDOWN_SECONDS}s "
+                "after the last failure; log record dropped"
+            )
+        try:
+            self._connection_pool = self._connect()
+        except psycopg2.OperationalError:
+            self._build_failed_at = self._clock()
+            raise
+        self._build_failed_at = None
+
+    def _connect(self):
+        """Open a connection pool: a single attempt."""
         # Add keepalive settings to prevent connections from going stale
         pool_params = {
-            **connection_params,
+            **self.connection_params,
+            # Without it a connect to a dead host waits for the OS TCP timeout.
+            "connect_timeout": POOL_CONNECT_TIMEOUT_SECONDS,
             "keepalives": 1,
             "keepalives_idle": 30,  # Start keepalive after 30s idle
             "keepalives_interval": 10,  # Send keepalive every 10s
             "keepalives_count": 5,  # 5 failed keepalives = dead connection
         }
-        max_retries = 5
-        retry_delay_seconds = 2
-        for attempt in range(1, max_retries + 1):
-            try:
-                self.connection_pool = pool.SimpleConnectionPool(
-                    1,
-                    10,  # min and max connections
-                    **pool_params,
-                )
-                break
-            except psycopg2.OperationalError:
-                if attempt == max_retries:
-                    raise
-                print(
-                    f"PostgreSQL not ready, retrying in {retry_delay_seconds}s "
-                    f"(attempt {attempt}/{max_retries})"
-                )
-                time.sleep(retry_delay_seconds)
+        # No retry loop here: this runs inside emit, under the handler lock, and
+        # every log call in the process waits for it. A failed attempt goes to
+        # handleError and the next record tries again.
+        return pool.SimpleConnectionPool(
+            1,
+            10,  # min and max connections
+            **pool_params,
+        )
 
     def emit(self, record):
         """Write the log record to the database.
 
+        A failure never raises into the code that logged: it goes to
+        ``handleError``, as the standard library's handlers do.
+
         Args:
             record: The log record to write.
         """
-        # Get a connection from the pool
-        connection = self.connection_pool.getconn()
-        connection_is_bad = False
-
         try:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    """
-                    INSERT INTO logs
-                    (timestamp, pid, level, module, message)
-                    VALUES (%s, %s, %s, %s, %s)
-                    """,
-                    (
-                        datetime.datetime.fromtimestamp(record.created),
-                        record.process,
-                        record.levelname,
-                        record.module,
-                        self.format(record),
-                    ),
-                )
-                connection.commit()
-        except psycopg2.OperationalError as e:
-            # Connection is bad (timeout, network issue, etc.)
-            # Mark it as bad so it's not returned to the pool
-            connection_is_bad = True
-            print(f"Database connection error (will retry with new connection): {e}")
+            self._write(record)
+        except Exception:  # noqa: BLE001
+            # Any failure (pool build, getconn, execute) must stay out of the
+            # caller's log.*() call, whatever its type: the stdlib's own
+            # handlers catch exactly this much.
+            self.handleError(record)
 
-            # Try once more with a fresh connection
+    def _write(self, record):
+        """Insert the record, once more on a fresh connection if one was bad."""
+        connection_pool = self.connection_pool
+        for attempt in (1, 2):
+            connection = connection_pool.getconn()
+            connection_is_bad = False
             try:
-                new_connection = self.connection_pool.getconn()
-                try:
-                    with new_connection.cursor() as cursor:
-                        cursor.execute(
-                            """
-                            INSERT INTO logs
-                            (timestamp, pid, level, module, message)
-                            VALUES (%s, %s, %s, %s, %s)
-                            """,
-                            (
-                                datetime.datetime.fromtimestamp(record.created),
-                                record.process,
-                                record.levelname,
-                                record.module,
-                                self.format(record),
-                            ),
-                        )
-                        new_connection.commit()
-                finally:
-                    self.connection_pool.putconn(new_connection)
-            except (
-                Exception
-            ) as retry_error:  # retry can fail for any DB reason; fatal  # noqa
+                self._insert(connection, record)
+                return
+            except psycopg2.OperationalError as e:
+                # Timeout, network issue, ...: the pool must not keep it.
+                connection_is_bad = True
+                if attempt == 2:
+                    raise
                 print(
-                    f"FATAL: Database logging failed after retry. "
-                    f"Worker cannot continue without logging capability: {retry_error}"
+                    f"Database connection error (will retry with new connection): {e}"
                 )
-                # Re-raise to fail the worker - logging is critical
-                raise
-        except (
-            Exception
-        ) as e:  # any DB error is fatal — worker cannot operate without logging
-            # Any other database error is also fatal
-            print(f"FATAL: Error writing to PostgreSQL: {e}")
-            # Re-raise to fail the worker
-            raise
-        finally:
-            # Return the connection to the pool, or close it if it's bad
-            if connection_is_bad:
-                try:
-                    connection.close()
-                except (
-                    Exception
-                ):  # close can fail on broken connection; safe to ignore  # noqa
-                    pass
-                # putconn with close=True tells the pool this connection is bad
-                self.connection_pool.putconn(connection, close=True)
-            else:
-                self.connection_pool.putconn(connection)
+            finally:
+                connection_pool.putconn(connection, close=connection_is_bad)
+
+    def _insert(self, connection, record):
+        """Write one record on ``connection`` and commit."""
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO logs
+                (timestamp, pid, level, module, message)
+                VALUES (%s, %s, %s, %s, %s)
+                """,
+                (
+                    datetime.datetime.fromtimestamp(record.created),
+                    record.process,
+                    record.levelname,
+                    record.module,
+                    self.format(record),
+                ),
+            )
+            connection.commit()
 
     def close(self):
         """Close all database connections when the handler is closed."""
-        if hasattr(self, "connection_pool") and self.connection_pool:
-            self.connection_pool.closeall()
+        # A pool inherited from a parent process is not ours to close.
+        if self._connection_pool is not None and self._pool_pid == os.getpid():
+            self._connection_pool.closeall()
         super().close()
 
 

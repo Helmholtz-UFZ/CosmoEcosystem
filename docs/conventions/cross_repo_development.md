@@ -51,6 +51,21 @@ device-specific.
   number of worktrees of all three repos can run at the same time, without `flock` or
   port instructions in an agent's brief.
 
+## Versioning
+
+Versions are judged from the apps' side. A **breaking** change is one an app must act
+on to upgrade: a new required column in its `jobs` table, a changed return value or
+contract (as `job_run.run` returning `None` in `v0.15.0`), a removed or renamed
+symbol, a new required domain attribute.
+
+- **Before `v1.0.0`:** a breaking change or a feature bumps the minor (`v0.15.0`), a
+  fix that changes no contract bumps the patch (`v0.15.1`).
+- **From `v1.0.0` on:** semantic versioning. Breaking → major, an addition an app may
+  ignore (function, page, optional parameter, framework task) → minor, fix → patch.
+
+The apps keep their own version numbers; a breaking framework release is one migration
+in each app, released and pinned as above.
+
 ## Examples
 
 ### Do

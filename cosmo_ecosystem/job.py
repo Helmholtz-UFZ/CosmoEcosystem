@@ -42,8 +42,6 @@ except PackageNotFoundError:
     # plausible-looking number either, hence the explicit "unknown".
     FRAMEWORK_VERSION = "unknown"
 
-SEED = os.urandom(128)
-
 # Columns the framework Job reads and writes beyond `JobColumns` (see "The
 # extra-column contract" in docs/conventions/database_schema.md).
 REQUIRED_EXTRA_COLUMNS = ("input_data",)
@@ -60,7 +58,9 @@ RUN_OWNED_COLUMNS = ("heartbeat_at",)
 
 def find_unique_job_id() -> str:
     """Find a unique job id."""
-    coolname.replace_random(random.Random(SEED))
+    # Seeded afresh on every call: a fixed seed would replay the same sequence of
+    # names, so every call would return the first free one.
+    coolname.replace_random(random.Random(os.urandom(128)))
 
     while True:
         job_id = "_".join(coolname.generate(3))

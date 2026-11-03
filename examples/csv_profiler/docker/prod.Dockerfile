@@ -42,8 +42,12 @@ COPY --chown=appuser:appuser . .
 
 RUN chown appuser:appuser /python_docker/cosmo_ecosystem
 WORKDIR /python_docker/cosmo_ecosystem/examples/csv_profiler
+# The venv's bin on PATH, as in dev.Dockerfile and worker.Dockerfile, instead of
+# `uv run` in CMD: `uv run` syncs the project's default groups first, which
+# would install the dev group at every container start, after `--no-dev` here.
+ENV PATH="/python_docker/cosmo_ecosystem/examples/csv_profiler/.venv/bin:$PATH"
 USER appuser
 RUN uv sync --no-dev --frozen
 
-# Setup rclone config and start gunicorn
-CMD uv run gunicorn -w 4 -b 0.0.0.0:$FLASK_PORT csv_profiler.app:server
+# Start gunicorn
+CMD exec gunicorn -w 4 -b 0.0.0.0:$FLASK_PORT csv_profiler.app:server

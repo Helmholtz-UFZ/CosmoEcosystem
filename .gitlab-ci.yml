@@ -90,7 +90,7 @@ example-test:
     - "source .env"
     # No rclone setup here: conftest runs setup_remote() and create_bucket().
     - "export PGPASSWORD=${POSTGRES_PASSWORD}"
-    - "psql -h ${POSTGRES_HOST_NAME} -U ${POSTGRES_USER} -d ${POSTGRES_DB} < docker/init.sql"
+    - "psql -h ${POSTGRES_HOST_NAME} -U ${POSTGRES_USER} -d ${POSTGRES_DB} -v ON_ERROR_STOP=1 < docker/init.sql"
     - "pip install uv"
     - "uv sync"
     - "uv run playwright install --with-deps chromium"
