@@ -53,18 +53,18 @@ device-specific.
 
 ## Versioning
 
-Since `v1.0.0` the framework follows semantic versioning, judged from the apps' side:
+Versions are judged from the apps' side. A **breaking** change is one an app must act
+on to upgrade: a new required column in its `jobs` table, a changed return value or
+contract (as `job_run.run` returning `None` in `v0.15.0`), a removed or renamed
+symbol, a new required domain attribute.
 
-- **Major:** an app must change something to upgrade: a new required column in its
-  `jobs` table, a changed return value or contract (as `job_run.run` returning `None`
-  in `v0.15.0`), a removed or renamed symbol, a new required domain attribute.
-- **Minor:** an addition an app may ignore: a new function, page, optional parameter
-  or framework task.
-- **Patch:** a fix that changes no contract.
+- **Before `v1.0.0`:** a breaking change or a feature bumps the minor (`v0.15.0`), a
+  fix that changes no contract bumps the patch (`v0.15.1`).
+- **From `v1.0.0` on:** semantic versioning. Breaking → major, an addition an app may
+  ignore (function, page, optional parameter, framework task) → minor, fix → patch.
 
-Before `v1.0.0` every minor release could break; the release notes of `v0.10.0` to
-`v0.15.0` name what each one required. The apps keep their own version numbers; a
-framework major is still one migration in each app, released and pinned as above.
+The apps keep their own version numbers; a breaking framework release is one migration
+in each app, released and pinned as above.
 
 ## Examples
 
