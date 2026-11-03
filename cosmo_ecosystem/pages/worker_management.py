@@ -255,8 +255,9 @@ def format_reserved_tasks(reserved_tasks):
             {
                 "task_id": task["id"],
                 "task_name": task["name"].split(".")[-1],
-                # delivery_info may be absent for tasks without routing info
-                "queue": task.get("delivery_info", {}).get("routing_key", "default"),
+                # Request.info() always carries delivery_info, and that dict always
+                # has a routing_key entry (celery/worker/request.py).
+                "queue": task["delivery_info"]["routing_key"],
                 "worker": task["worker"],
             }
         )
