@@ -212,8 +212,9 @@ def test_saving_uploads_the_work_dir_and_writes_the_row():
 
         assert _remote_files(job_id) == {FILE_NAME}
         assert load_row(job_id)["status"] == "RUNNING"
+        # A save of an existing row never writes the status (ADR 0005).
         save(job_id, _row(job_id, status="COMPLETED"))
-        assert load_row(job_id)["status"] == "COMPLETED"
+        assert load_row(job_id)["status"] == "RUNNING"
     finally:
         _cleanup(job_id)
 

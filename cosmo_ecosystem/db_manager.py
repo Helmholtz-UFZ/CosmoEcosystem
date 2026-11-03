@@ -2,6 +2,7 @@
 
 import logging
 import time
+import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -16,6 +17,7 @@ from sqlalchemy import (
     Text,
     create_engine,
     func,
+    insert,
     update,
 )
 from sqlalchemy.dialects.postgresql import UUID
@@ -32,6 +34,10 @@ from cosmo_ecosystem.config import (
 from cosmo_ecosystem.error_handling import JobNotFound, JobTableNotConfigured
 
 log = logging.getLogger(__name__)
+
+# The columns only the job run's named transitions write (ADR 0005): never a save.
+# ``add_entry`` skips them when it updates an existing row.
+RUN_OWNED_COLUMNS = ("heartbeat_at", "run_id", "status", "submitted")
 
 
 class Base(DeclarativeBase):
@@ -249,7 +255,15 @@ class DbManager:
 
     @classmethod
     def add_entry(cls, data_to_insert):
-        """Add or update a job entry in the database."""
+        """Create a job's row, or update an existing one without its run's columns.
+
+        A new row starts PENDING and not submitted unless ``data_to_insert``
+        says otherwise (a fixture, a restore). An existing row gets every
+        column of ``data_to_insert`` except ``RUN_OWNED_COLUMNS``: a save never
+        writes status, submitted, heartbeat or run id, so a job object loaded
+        earlier cannot put an old state back (ADR 0005). Those change only
+        through the named transitions of ``cosmo_ecosystem.job_run``.
+        """
         log.debug(
             f"Add entry to database: {data_to_insert['job_id']}",
         )
@@ -269,10 +283,13 @@ class DbManager:
                     .first()
                 )
                 for column_name, column_value in data_to_insert.items():
-                    setattr(job, column_name, column_value)
+                    if column_name not in RUN_OWNED_COLUMNS:
+                        setattr(job, column_name, column_value)
             else:
                 log.debug("New entry.")
-                job_row = job_table(**data_to_insert)
+                job_row = job_table(
+                    **{"status": "PENDING", "submitted": False, **data_to_insert}
+                )
                 session.add(job_row)
 
     @classmethod
@@ -290,59 +307,122 @@ class DbManager:
                 setattr(job, column_name, column_value)
 
     @classmethod
-    def set_submitted(cls, job_id):
-        """Update the 'submitted' column of the job table for a given job ID.
+    def queue_run(cls, job_id) -> bool:
+        """Queue a run in the job's row; return whether the row allowed it.
 
-        The method works as well as a lock so that the job is not submitted twice.
-
-        Returns:
-        bool: True if the job was successfully marked as submitted, False if it was
-        already submitted.
-        """
-        log.debug(f"Set submitted for job: {job_id}")
-
-        job_table = cls._job_table()
-        with cls.session_scope() as session:
-            job = (
-                session.query(job_table)
-                .filter_by(job_id=job_id)
-                .with_for_update()
-                .first()
-            )
-            if job is None:
-                raise JobNotFound(job_id)
-
-            if job.submitted and job.status in ["RUNNING", "COMPLETED"]:
-                return False
-            else:
-                job.submitted = True
-                return True
-
-    @classmethod
-    def set_status_without_heartbeat(cls, job_id, status):
-        """Write status and clear the heartbeat of the job's row, in one update.
+        One conditional update from PENDING or FAILED to RUNNING that clears the
+        heartbeat and the run id and sets ``submitted``; of any number of
+        concurrent callers at most one gets True.
 
         Raises:
             JobNotFound: If the job has no row.
         """
-        log.debug(f"Set job {job_id} to {status} without a heartbeat.")
+        log.debug(f"Queue a run of job: {job_id}")
         job_table = cls._job_table()
         with cls.session_scope() as session:
             result = session.execute(
                 update(job_table)
-                .where(job_table.job_id == job_id)
-                .values(status=status, heartbeat_at=None)
+                .where(
+                    job_table.job_id == job_id,
+                    job_table.status.in_(("PENDING", "FAILED")),
+                )
+                .values(
+                    status="RUNNING",
+                    heartbeat_at=None,
+                    run_id=None,
+                    submitted=True,
+                )
             )
-            if result.rowcount == 0:
-                raise JobNotFound(job_id)
+            applied = result.rowcount == 1
+        if not applied:
+            cls._raise_if_no_row(job_id)
+        return applied
 
     @classmethod
-    def claim_run(cls, job_id) -> bool:
-        """Give a queued run's row its first heartbeat; return whether it was queued.
+    def _raise_if_no_row(cls, job_id):
+        """Raise JobNotFound if the job has no row: a refused update says why."""
+        if not cls.check_existence(job_id):
+            raise JobNotFound(job_id)
+
+    @classmethod
+    def reset_run(cls, job_id) -> bool:
+        """Return the job's row to PENDING; return whether the row allowed it.
+
+        One conditional update from PENDING, FAILED or COMPLETED that clears the
+        heartbeat and the run id. ``submitted`` stays: it means "submitted at
+        least once". A RUNNING row is left untouched.
+
+        Raises:
+            JobNotFound: If the job has no row.
+        """
+        log.debug(f"Reset the row of job: {job_id}")
+        job_table = cls._job_table()
+        with cls.session_scope() as session:
+            result = session.execute(
+                update(job_table)
+                .where(
+                    job_table.job_id == job_id,
+                    job_table.status.in_(("PENDING", "FAILED", "COMPLETED")),
+                )
+                .values(status="PENDING", heartbeat_at=None, run_id=None)
+            )
+            applied = result.rowcount == 1
+        if not applied:
+            cls._raise_if_no_row(job_id)
+        return applied
+
+    @classmethod
+    def cancel_run(cls, job_id, message) -> bool:
+        """Fail the job's RUNNING row and log message to its job log, in one commit.
+
+        One conditional update from RUNNING to FAILED. The job log record is
+        inserted in the same transaction, so a database error between the two
+        leaves neither. Heartbeat and run id stay: the cancelled run's own
+        writes find a row that is no longer RUNNING.
+
+        Returns:
+            Whether the row was RUNNING. A row in any other status is untouched.
+
+        Raises:
+            JobNotFound: If the job has no row.
+        """
+        log.debug(f"Cancel the run of job: {job_id}")
+        job_table = cls._job_table()
+        with cls.session_scope() as session:
+            result = session.execute(
+                update(job_table)
+                .where(job_table.job_id == job_id, job_table.status == "RUNNING")
+                .values(status="FAILED")
+            )
+            applied = result.rowcount == 1
+            if applied:
+                session.execute(
+                    insert(JobLogTable),
+                    [
+                        {
+                            "job_id": job_id,
+                            "timestamp": datetime.now(),
+                            "level": "WARNING",
+                            "module": "job_run",
+                            "message": message,
+                        }
+                    ],
+                )
+        if not applied:
+            cls._raise_if_no_row(job_id)
+        return applied
+
+    @classmethod
+    def claim_run(cls, job_id) -> uuid.UUID | None:
+        """Give a queued run's row its first heartbeat and a fresh run id.
 
         One conditional update (``status = 'RUNNING' AND heartbeat_at IS NULL``),
-        so of any number of concurrent callers at most one gets True.
+        so of any number of concurrent callers at most one wins.
+
+        Returns:
+            The new run id, or None if the row was not a queued run.
         """
+        run_id = uuid.uuid4()
         job_table = cls._job_table()
         with cls.session_scope() as session:
             result = session.execute(
@@ -352,16 +432,16 @@ class DbManager:
                     job_table.status == "RUNNING",
                     job_table.heartbeat_at.is_(None),
                 )
-                .values(heartbeat_at=func.now())
+                .values(heartbeat_at=func.now(), run_id=run_id)
             )
-            return result.rowcount == 1
+            return run_id if result.rowcount == 1 else None
 
     @classmethod
     def fail_queued_run(cls, job_id) -> bool:
         """Write FAILED to the job's row if its run is still queued; return whether.
 
-        Queued means RUNNING with no heartbeat: a row another delivery claimed
-        is left alone.
+        Queued means RUNNING with no heartbeat and no run id: a row another
+        delivery claimed is left alone.
         """
         job_table = cls._job_table()
         with cls.session_scope() as session:
@@ -371,30 +451,56 @@ class DbManager:
                     job_table.job_id == job_id,
                     job_table.status == "RUNNING",
                     job_table.heartbeat_at.is_(None),
+                    job_table.run_id.is_(None),
                 )
                 .values(status="FAILED")
             )
             return result.rowcount == 1
 
     @classmethod
-    def refresh_heartbeat(cls, job_id):
-        """Set the heartbeat of the job's row to now(), if a run has claimed it.
+    def refresh_heartbeat(cls, job_id, run_id) -> bool:
+        """Set the heartbeat of the job's row to now(), if run_id still holds it.
 
-        Only a RUNNING row that already has a heartbeat: a re-queued row (no
-        heartbeat) belongs to the next delivery's claim, never to a thread of
-        an older run that is still alive (swept by mistake, then resubmitted).
+        Only a RUNNING row that carries ``run_id``: a re-queued or reset row
+        (no run id), or one a newer run claimed, belongs to someone else, and a
+        thread of an older run that is still alive never keeps it alive.
+
+        Returns:
+            Whether the heartbeat was written; False means the run was overtaken.
         """
         job_table = cls._job_table()
         with cls.session_scope() as session:
-            session.execute(
+            result = session.execute(
                 update(job_table)
                 .where(
                     job_table.job_id == job_id,
                     job_table.status == "RUNNING",
-                    job_table.heartbeat_at.is_not(None),
+                    job_table.run_id == run_id,
                 )
                 .values(heartbeat_at=func.now())
             )
+            return result.rowcount == 1
+
+    @classmethod
+    def end_run(cls, job_id, run_id, status) -> bool:
+        """Write a run's final status, if run_id still holds the RUNNING row.
+
+        Returns:
+            Whether the status was written; False means the run was overtaken
+            (cancelled, swept, reset or replaced by a newer run) and wrote nothing.
+        """
+        job_table = cls._job_table()
+        with cls.session_scope() as session:
+            result = session.execute(
+                update(job_table)
+                .where(
+                    job_table.job_id == job_id,
+                    job_table.status == "RUNNING",
+                    job_table.run_id == run_id,
+                )
+                .values(status=status)
+            )
+            return result.rowcount == 1
 
     @classmethod
     def fail_runs_without_heartbeat_since(cls, threshold):

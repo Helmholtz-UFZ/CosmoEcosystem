@@ -20,7 +20,7 @@ from werkzeug.utils import secure_filename
 
 from cosmo_ecosystem.base_job import BaseJob
 from cosmo_ecosystem.constants import LOG_FILE_NAME
-from cosmo_ecosystem.db_manager import DbManager
+from cosmo_ecosystem.db_manager import RUN_OWNED_COLUMNS, DbManager
 from cosmo_ecosystem.error_handling import (
     InvalidJobID,
     JobExists,
@@ -51,9 +51,10 @@ REQUIRED_EXTRA_COLUMNS = ("input_data",)
 # neither reads nor writes it, and the app drops it after its migration.
 LEGACY_LOGS_COLUMN = "logs"
 
-# Columns the job run writes and a Job never writes back: a save during a run
-# would put the heartbeat the Job loaded over the run's newer one (ADR 0004).
-RUN_OWNED_COLUMNS = ("heartbeat_at",)
+# RUN_OWNED_COLUMNS (imported above) are the columns only the job run's named
+# transitions write and a Job never saves: a save from a Job loaded earlier would
+# put an old status, submitted mark, heartbeat or run id over the row's newer one
+# (ADR 0005). An app's own Job filters its save rows with the same tuple.
 
 
 def find_unique_job_id() -> str:
@@ -318,6 +319,12 @@ class Job(BaseJob):
         log.debug(
             f"Save attributes {', '.join(attribute_list)} to job {self.job_id}",
         )
+        owned = [name for name in attribute_list if name in RUN_OWNED_COLUMNS]
+        if owned:
+            raise ValueError(
+                f"Cannot save {', '.join(owned)} of job {self.job_id}: the job "
+                "run's transitions in cosmo_ecosystem.job_run own these columns."
+            )
         data_to_insert = {name: self._get_column_data(name) for name in attribute_list}
         try:
             job_persistence.update_columns(self.job_id, data_to_insert)
@@ -349,15 +356,19 @@ class Job(BaseJob):
         """Delete the job from the database, the local disk and storage."""
         job_persistence.delete_job(self.job_id)
 
-    def submit(self):
-        """Submit job to Celery queue for background processing."""
+    def submit(self) -> bool:
+        """Submit job to Celery queue for background processing.
+
+        The first write is the guard, ``job_run.mark_queued``: one conditional
+        update from PENDING or FAILED to RUNNING. A submit that loses it (the
+        job is queued, running or completed already: a second click, a second
+        tab) logs at DEBUG and returns False before it touches the work dir, the
+        row or the queue (ADR 0005).
+
+        Returns:
+            Whether this call queued a run.
+        """
         log.info(f"Submit job {self.job_id}.")
-
-        if not DbManager.set_submitted(self.job_id):
-            log.debug(f"Job {self.job_id} was already submitted.")
-            return
-
-        self.submitted = True
 
         if self.submit_handler is None:
             raise RuntimeError(
@@ -366,16 +377,21 @@ class Job(BaseJob):
                 "at startup before submitting a Job."
             )
 
-        # Save and queue BEFORE enqueuing: pull first so the dir exists and
-        # holds nothing stale, upload and write the submitted row, then queue
-        # the run (RUNNING, no heartbeat). A fast worker may claim the run and
-        # write COMPLETED or FAILED before the handler returns, and a RUNNING
-        # written after the enqueue would overwrite it (ADR 0002). Nothing is
-        # synced after the enqueue; only a failure is written then.
+        if not job_run.mark_queued(self.job_id):
+            log.debug(f"Job {self.job_id} is already submitted.")
+            return False
+
+        self.status = "RUNNING"
+        self.submitted = True
+
+        # Save BEFORE enqueuing: pull first so the dir exists and holds nothing
+        # stale, then upload and write the row. A fast worker may claim the run
+        # and write COMPLETED or FAILED before the handler returns; the row is
+        # already RUNNING, and nothing is synced after the enqueue (ADR 0002).
+        # The save never writes the status (ADR 0005). A failure here leaves the
+        # queued run without a message, like one the broker loses (ADR 0004).
         self.working_dir = job_persistence.work_dir(self.job_id)
         job_persistence.save(self.job_id, self._row())
-        job_run.mark_queued(self.job_id)
-        self.status = "RUNNING"
 
         # A handler that raises is re-raised after FAILED is written, while a
         # handler that reports failure returns: the flag is a failure the app
@@ -391,14 +407,19 @@ class Job(BaseJob):
             raise
         if failed:
             self._fail_to_start()
+        return True
 
     def _fail_to_start(self):
-        """Write FAILED and say so in the job log: the job was never enqueued."""
+        """Write FAILED and say so in the job log: the job was never enqueued.
+
+        Only while the row is still a queued run; a run a worker already
+        claimed is not failed from here.
+        """
         message = f"Cannot start job {self.job_id}."
         log.error(message)
-        job_log.append(self.job_id, message, level=logging.ERROR)
-        self.status = "FAILED"
-        job_persistence.update_columns(self.job_id, {"status": self.status})
+        if job_run.mark_start_failed(self.job_id):
+            job_log.append(self.job_id, message, level=logging.ERROR)
+            self.status = "FAILED"
 
     def time_to_live(self):
         """Return the number of days after which this job will be deleted."""
@@ -433,9 +454,19 @@ class Job(BaseJob):
         else:
             return "bg-secondary"
 
-    def reset(self):
-        """Reset job to PENDING and clean all results (keeps uploaded CSV)."""
+    def reset(self) -> bool:
+        """Reset job to PENDING and clean all results (keeps uploaded CSV).
+
+        The first write is the conditional reset, ``job_run.mark_pending``: a
+        RUNNING job is refused before anything is deleted (ADR 0005).
+
+        Returns:
+            Whether the job was reset; False means it is RUNNING.
+        """
         log.info(f"Reset job {self.job_id}")
+        if not job_run.mark_pending(self.job_id):
+            log.debug(f"Job {self.job_id} runs and is not reset.")
+            return False
         self.status = "PENDING"
         self.working_dir = job_persistence.work_dir(self.job_id)
         job_persistence.delete_files(
@@ -449,8 +480,7 @@ class Job(BaseJob):
         self.delete_logs()
         self.dump_parameters()
         self.save()
-        # The last run's heartbeat would keep the next run from claiming the row.
-        job_run.mark_pending(self.job_id)
+        return True
 
     def delete_logs(self):
         """Clear the job log."""
