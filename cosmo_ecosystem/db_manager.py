@@ -41,6 +41,33 @@ log = logging.getLogger(__name__)
 RUN_OWNED_COLUMNS = ("heartbeat_at", "run_id", "status", "submitted")
 
 
+def without_run_owned(columns):
+    """Return a dict of the ``columns`` mapping minus ``RUN_OWNED_COLUMNS``.
+
+    The one place that filters a save row; an app's own save path uses it too.
+    """
+    return {
+        name: value
+        for name, value in dict(columns).items()
+        if name not in RUN_OWNED_COLUMNS
+    }
+
+
+def reject_run_owned(job_id, names):
+    """Raise ValueError naming the run-owned columns among ``names``.
+
+    The one guard of every unconditional column write (ADR 0005): ``status``,
+    ``submitted``, ``heartbeat_at`` and ``run_id`` change only through the named
+    transitions of ``cosmo_ecosystem.job_run``.
+    """
+    owned = [name for name in names if name in RUN_OWNED_COLUMNS]
+    if owned:
+        raise ValueError(
+            f"Cannot write {', '.join(owned)} of job {job_id}: the job run's "
+            "transitions in cosmo_ecosystem.job_run own these columns."
+        )
+
+
 class Base(DeclarativeBase):
     """The framework's declarative registry — the one every table belongs on.
 
@@ -283,9 +310,10 @@ class DbManager:
                     .filter_by(job_id=data_to_insert["job_id"])
                     .first()
                 )
-                for column_name, column_value in data_to_insert.items():
-                    if column_name not in RUN_OWNED_COLUMNS:
-                        setattr(job, column_name, column_value)
+                for column_name, column_value in without_run_owned(
+                    data_to_insert
+                ).items():
+                    setattr(job, column_name, column_value)
             else:
                 log.debug("New entry.")
                 job_row = job_table(
@@ -295,8 +323,15 @@ class DbManager:
 
     @classmethod
     def update_column(cls, job_id, column_dic):
-        """Update specific columns of the job table for a given job ID."""
+        """Update specific columns of the job table for a given job ID.
+
+        Raises:
+            ValueError: If ``column_dic`` names a run-owned column (``status``,
+                ``submitted``, ``heartbeat_at``, ``run_id``).
+            JobNotFound: If the job has no row.
+        """
         log.debug(f"Update columns for job: {job_id}")
+        reject_run_owned(job_id, column_dic)
 
         job_table = cls._job_table()
         with cls.session_scope() as session:
@@ -329,7 +364,8 @@ class DbManager:
                 run-owned column.
             JobNotFound: If the job has no row.
         """
-        not_input = {"job_id", "start_date", *RUN_OWNED_COLUMNS} & set(columns)
+        reject_run_owned(job_id, columns)
+        not_input = {"job_id", "start_date"} & set(columns)
         if not_input:
             raise ValueError(
                 f"Not input columns of job {job_id}: {', '.join(sorted(not_input))}."

@@ -18,7 +18,7 @@ from cosmo_ecosystem.job_persistence import load_row
 
 # Wires DbManager.job_table exactly as the worker process has it.
 import csv_profiler.domain  # noqa: F401
-from job_row_helpers import drop_row, row_and_log, set_heartbeat
+from job_row_helpers import drop_row, row_and_log, set_heartbeat, set_row_columns
 
 CANCELLED_LINE = "cancelled"
 
@@ -41,7 +41,7 @@ def _create(job_id, status, submitted=False):
 def _leave_traces_of_a_run(job_id):
     """Give the row the heartbeat and run id a run that claimed it left behind."""
     set_heartbeat(job_id, "3 minutes")
-    DbManager.update_column(job_id, {"run_id": uuid.uuid4()})
+    set_row_columns(job_id, run_id=uuid.uuid4())
 
 
 @pytest.fixture

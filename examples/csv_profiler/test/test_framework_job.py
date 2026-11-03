@@ -162,7 +162,7 @@ def test_a_job_loaded_before_a_run_ended_does_not_save_its_old_state_back(new_jo
     job_run.mark_queued(new_job.job_id)
     job = Job(job_id=new_job.job_id)  # loaded while RUNNING, submitted
     set_heartbeat(new_job.job_id, "11 minutes")
-    update_columns(new_job.job_id, {"status": "FAILED", "submitted": False})
+    set_row_columns(new_job.job_id, status="FAILED", submitted=False)
     swept = load_row(new_job.job_id)
 
     job.save()
@@ -223,7 +223,7 @@ def test_submitting_twice_enqueues_one_run(new_job, counted_handler):
 @pytest.mark.parametrize("status", ["RUNNING", "COMPLETED"])
 def test_lost_guard_does_nothing(new_job, counted_handler, status):
     """A submit that loses the guard saves nothing, pulls nothing, enqueues nothing."""
-    update_columns(new_job.job_id, {"status": status})
+    set_row_columns(new_job.job_id, status=status)
     job = Job(job_id=new_job.job_id)
     job.model.upload_file_name = "an_unsaved_change.csv"
     before = load_row(new_job.job_id)
@@ -236,7 +236,7 @@ def test_lost_guard_does_nothing(new_job, counted_handler, status):
 
 def test_a_failed_job_is_submitted_again_directly(new_job, counted_handler):
     """Resubmitting a FAILED job needs no reset."""
-    update_columns(new_job.job_id, {"status": "FAILED"})
+    set_row_columns(new_job.job_id, status="FAILED")
 
     assert Job(job_id=new_job.job_id).submit() is True
 
@@ -323,7 +323,7 @@ def test_saving_the_input_of_a_pending_job_writes_only_the_input(new_job):
 def test_input_of_a_started_job_is_kept(new_job, status):
     """A page loaded while PENDING cannot rewrite the input of a started job."""
     job = Job(job_id=new_job.job_id)
-    update_columns(new_job.job_id, {"status": status})
+    set_row_columns(new_job.job_id, status=status)
     _a_changed_input(job)
     before = load_row(new_job.job_id)
 

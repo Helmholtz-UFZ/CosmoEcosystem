@@ -20,7 +20,12 @@ from werkzeug.utils import secure_filename
 
 from cosmo_ecosystem.base_job import BaseJob
 from cosmo_ecosystem.constants import LOG_FILE_NAME
-from cosmo_ecosystem.db_manager import RUN_OWNED_COLUMNS, DbManager
+from cosmo_ecosystem.db_manager import (
+    RUN_OWNED_COLUMNS,  # noqa: F401 -- apps import it from here
+    DbManager,
+    reject_run_owned,
+    without_run_owned,
+)
 from cosmo_ecosystem.error_handling import (
     FileValidationError,
     InvalidJobID,
@@ -361,12 +366,7 @@ class Job(BaseJob):
         log.debug(
             f"Save attributes {', '.join(attribute_list)} to job {self.job_id}",
         )
-        owned = [name for name in attribute_list if name in RUN_OWNED_COLUMNS]
-        if owned:
-            raise ValueError(
-                f"Cannot save {', '.join(owned)} of job {self.job_id}: the job "
-                "run's transitions in cosmo_ecosystem.job_run own these columns."
-            )
+        reject_run_owned(self.job_id, attribute_list)
         data_to_insert = {name: self._get_column_data(name) for name in attribute_list}
         try:
             job_persistence.update_columns(self.job_id, data_to_insert)
@@ -378,8 +378,8 @@ class Job(BaseJob):
         column_names = DbManager._job_table().__table__.columns.keys()
         row = {
             name: self._get_column_data(name)
-            for name in column_names
-            if name != LEGACY_LOGS_COLUMN and name not in RUN_OWNED_COLUMNS
+            for name in without_run_owned(dict.fromkeys(column_names))
+            if name != LEGACY_LOGS_COLUMN
         }
         self.config_model(**json.loads(row["input_data"]))
         return row

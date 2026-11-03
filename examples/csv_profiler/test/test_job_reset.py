@@ -9,8 +9,9 @@ import pytest
 
 from cosmo_ecosystem import job_log, job_run
 from cosmo_ecosystem.job import Job
-from cosmo_ecosystem.job_persistence import delete_job, load_row, update_columns
+from cosmo_ecosystem.job_persistence import delete_job, load_row
 
+from job_row_helpers import set_row_columns
 from csv_profiler.pydantic_models import ProfileConfig
 from csv_profiler.job_reset import (
     CHANGE_INPUT_ACTION,
@@ -61,7 +62,7 @@ def test_a_running_job_is_not_reset_and_not_resubmitted(monkeypatch, action):
         assert submitted == []
     finally:
         job_log.clear(job_id)
-        update_columns(job_id, {"status": "FAILED"})
+        set_row_columns(job_id, status="FAILED")
         delete_job(job_id)
 
 
@@ -71,7 +72,7 @@ def test_a_finished_job_is_reset_and_the_path_to_go_to_is_returned(monkeypatch):
     monkeypatch.setattr(Job, "file_validator", None)
     job_id = "test_reset_finished_job"
     Job(new_job_id=job_id)
-    update_columns(job_id, {"status": "COMPLETED"})
+    set_row_columns(job_id, status="COMPLETED")
 
     try:
         assert reset_job(job_id, CHANGE_INPUT_ACTION) == f"/input/{job_id}"

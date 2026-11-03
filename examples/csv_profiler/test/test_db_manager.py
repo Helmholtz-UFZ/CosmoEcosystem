@@ -5,6 +5,8 @@ import uuid
 
 from cosmo_ecosystem.db_manager import DbManager
 
+from job_row_helpers import set_row_columns
+
 
 def test_add_and_check_existence():
     """Test adding a job entry and checking its existence."""
@@ -56,7 +58,7 @@ def test_update_column():
         "version": "0.1.0",
     }
     DbManager.add_entry(data_to_insert)
-    DbManager.update_column(job_id, {"status": "COMPLETED"})
+    set_row_columns(job_id, status="COMPLETED")
     columns = DbManager.get_job_columns(job_id)
     assert columns["status"] == "COMPLETED"
 
@@ -119,7 +121,7 @@ def test_a_jobs_row_stores_the_run_id():
         assert DbManager.get_job_columns(job_id)["run_id"] is None
 
         run_id = uuid.uuid4()
-        DbManager.update_column(job_id, {"run_id": run_id})
+        set_row_columns(job_id, run_id=run_id)
 
         assert DbManager.get_job_columns(job_id)["run_id"] == run_id
     finally:

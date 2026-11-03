@@ -133,17 +133,17 @@ def test_loading_a_row_makes_no_rclone_call(rclone_calls):
 def test_updating_columns_changes_only_those_columns_and_makes_no_rclone_call(
     rclone_calls,
 ):
-    """A status change costs one database write and nothing in storage."""
+    """A column change costs one database write and nothing in storage."""
     job_id = "test_persistence_update_columns"
     DbManager.add_entry(_row(job_id, version="9.9.9"))
 
     try:
-        update_columns(job_id, {"status": "RUNNING", "submitted": True})
+        update_columns(job_id, {"notified_end": True, "version": "1.0.0"})
 
         row = load_row(job_id)
-        assert row["status"] == "RUNNING"
-        assert row["submitted"] is True
-        assert row["version"] == "9.9.9"
+        assert row["notified_end"] is True
+        assert row["version"] == "1.0.0"
+        assert row["status"] == "PENDING"
         assert rclone_calls == []
     finally:
         _cleanup(job_id)
@@ -154,7 +154,7 @@ def test_updating_columns_of_a_missing_row_raises():
     job_id = "test_persistence_update_missing"
 
     with pytest.raises(JobNotFound):
-        update_columns(job_id, {"status": "RUNNING"})
+        update_columns(job_id, {"notified_end": True})
 
     assert not DbManager.check_existence(job_id)
 
@@ -676,5 +676,36 @@ def test_a_database_row_turned_running_during_a_delete_survives():
         assert DbManager.delete_job(job_id) is False
 
         assert DbManager.check_existence(job_id)
+    finally:
+        drop_row(job_id)
+
+
+@pytest.mark.parametrize("column", ["status", "submitted", "heartbeat_at", "run_id"])
+def test_the_column_seam_refuses_the_columns_a_run_owns(column):
+    """No unconditional write of status, submitted, heartbeat or run id exists."""
+    job_id = f"test_persistence_owned_{column}"
+    DbManager.add_entry(_row(job_id))
+    before = load_row(job_id)
+
+    try:
+        with pytest.raises(ValueError, match=column):
+            update_columns(job_id, {column: None})
+        with pytest.raises(ValueError, match=column):
+            DbManager.update_column(job_id, {column: None})
+
+        assert load_row(job_id) == before
+    finally:
+        drop_row(job_id)
+
+
+def test_the_column_seam_still_writes_the_other_columns():
+    """Only the run-owned columns are refused."""
+    job_id = "test_persistence_update_other_columns"
+    DbManager.add_entry(_row(job_id))
+
+    try:
+        update_columns(job_id, {"notified_end": True})
+
+        assert load_row(job_id)["notified_end"] is True
     finally:
         drop_row(job_id)

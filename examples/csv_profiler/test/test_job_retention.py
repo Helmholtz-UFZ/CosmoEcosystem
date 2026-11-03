@@ -32,7 +32,7 @@ from cosmo_ecosystem.object_storage_manager import (
     save_files,
 )
 
-from job_row_helpers import drop_row
+from job_row_helpers import drop_row, set_row_columns
 
 FILE_NAME = "result.csv"
 CONTENT = "col_a,col_b\n1,2\n"
@@ -544,7 +544,7 @@ def test_deleting_several_jobs_tries_every_one_and_names_the_failures(tmp_path):
 
 def _set_status(job_id, status):
     """Write status to job_id's row, as a transition would have left it."""
-    DbManager.update_column(job_id, {"status": status})
+    set_row_columns(job_id, status=status)
 
 
 def test_cleanup_leaves_an_expired_running_job_alone():
