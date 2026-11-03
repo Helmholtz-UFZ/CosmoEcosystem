@@ -54,6 +54,7 @@ class JobColumns:
     status = Column(String)
     version = Column(String)
     heartbeat_at = Column(DateTime(timezone=True))
+    run_id = Column(UUID(as_uuid=True))
 ```
 
 Each app declares its own concrete class from it, on the framework `Base`,
@@ -111,6 +112,14 @@ job run writes it, always with the database's `now()`:
 - set: a worker claimed the run (`job_run.run`'s first write) and refreshes it every
   60 s while it computes. The sweep fails a RUNNING row whose heartbeat is older
   than 10 minutes.
+
+And a second one: **`run_id`** (`UUID`, nullable, no default), added for run
+ownership ([ADR 0005](../adr/0005-job-status-has-named-owners.md)). It is the
+identity of the job run that holds the row:
+
+- `NULL`: the row is queued, reset, or never ran.
+- set: the claim wrote a fresh UUID. The run's heartbeat and final status are
+  written only `WHERE run_id` is still its own; queueing and a reset clear it.
 
 What stays app-side, and why:
 

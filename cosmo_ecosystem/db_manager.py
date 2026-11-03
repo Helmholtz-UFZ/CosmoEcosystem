@@ -18,6 +18,7 @@ from sqlalchemy import (
     func,
     update,
 )
+from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
@@ -493,7 +494,8 @@ class JobColumns:
     domain on 2026-08-21: COSMONAUT has neither ``input_data`` nor ``logs``, so
     those two stay app-side rather than in this mixin. ``heartbeat_at`` is not
     measured but required: the framework's job run writes it (ADR 0004), so every
-    app's table has to grow it before the app deploys this mapping. See
+    app's table has to grow it before the app deploys this mapping. The same holds
+    for ``run_id`` (ADR 0005). See
     docs/conventions/database_schema.md.
     """
 
@@ -506,6 +508,10 @@ class JobColumns:
     # The job run's sign of life, always the database's now(); NULL while the
     # run is queued and no worker has claimed it (cosmo_ecosystem.job_run).
     heartbeat_at = Column(DateTime(timezone=True))
+    # The identity of the job run that holds the row: a fresh UUID written by the
+    # claim, NULL while queued or reset. The run's heartbeat and final status are
+    # written only while the row still carries it (ADR 0005).
+    run_id = Column(UUID(as_uuid=True))
 
 
 class LogTable(Base):

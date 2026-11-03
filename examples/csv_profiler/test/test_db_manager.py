@@ -1,6 +1,7 @@
 """Test the db_manager class."""
 
 import datetime
+import uuid
 
 from cosmo_ecosystem.db_manager import DbManager
 
@@ -98,3 +99,28 @@ def test_list_jobs():
     jobs = DbManager.list_jobs()
     found = [jid for jid in jobs if jid.startswith(job_id)]
     assert len(found) == 3
+
+
+def test_a_jobs_row_stores_the_run_id():
+    """The jobs table has the run identity column, empty until a run claims the row."""
+    job_id = "test_job_run_id_column"
+    DbManager.add_entry(
+        {
+            "job_id": job_id,
+            "start_date": datetime.date(2024, 6, 1),
+            "input_data": {},
+            "submitted": False,
+            "notified_end": False,
+            "status": "PENDING",
+            "version": "0.1.0",
+        }
+    )
+    try:
+        assert DbManager.get_job_columns(job_id)["run_id"] is None
+
+        run_id = uuid.uuid4()
+        DbManager.update_column(job_id, {"run_id": run_id})
+
+        assert DbManager.get_job_columns(job_id)["run_id"] == run_id
+    finally:
+        DbManager.delete_job(job_id)

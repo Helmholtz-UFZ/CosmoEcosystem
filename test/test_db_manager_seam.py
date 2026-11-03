@@ -19,10 +19,11 @@ def test_framework_registers_no_jobs_table():
     assert "logs" in Base.metadata.tables
 
 
-def test_job_columns_has_the_measured_columns_and_the_heartbeat():
+def test_job_columns_has_the_measured_columns_and_the_run_columns():
     """The mixin carries the columns measured across all three consumers.
 
-    Plus ``heartbeat_at``, which the framework's job run writes (ADR 0004).
+    Plus ``heartbeat_at`` and ``run_id``, which the framework's job run writes
+    (ADR 0004, ADR 0005).
     """
     column_names = {
         name
@@ -37,6 +38,7 @@ def test_job_columns_has_the_measured_columns_and_the_heartbeat():
         "status",
         "version",
         "heartbeat_at",
+        "run_id",
     }
 
 
