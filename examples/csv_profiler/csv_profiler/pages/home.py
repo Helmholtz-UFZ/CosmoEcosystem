@@ -101,7 +101,7 @@ def layout():
 
 
 def _job_id_error(job_id):
-    """Return why ``job_id`` cannot be used for a new job, or "" if it can."""
+    """Return why ``job_id`` cannot be used for a new job, or None if it can."""
     try:
         validate_job_id(job_id)
     except ValueError as e:
@@ -110,7 +110,7 @@ def _job_id_error(job_id):
     if DbManager.check_existence(job_id):
         return "Job ID already exists"
 
-    return ""
+    return None
 
 
 @callback(
@@ -123,8 +123,10 @@ def start_job(n_clicks, job_id):
     """Create the job and navigate to input page."""
     if n_clicks is None:
         raise PreventUpdate
-    # The feedback text already tells the user why; Job() would raise.
-    if _job_id_error(job_id):
+    error = _job_id_error(job_id)
+    if error is not None:
+        # The feedback text already shows the user why; Job() would raise.
+        log.debug(f"Start ignored, job id {job_id!r} unusable: {error}")
         raise PreventUpdate
     Job(new_job_id=job_id)
     base_path = dash.page_registry["pages.input"]["path_template"]
@@ -141,7 +143,7 @@ def start_job(n_clicks, job_id):
 def validate_new_job_id(job_id):
     """Validate the job ID in real time."""
     error = _job_id_error(job_id)
-    if error:
+    if error is not None:
         return error, False, True
 
     return "", True, False

@@ -315,7 +315,7 @@ def test_start_with_an_invalid_job_id_stays_on_home(page, dash_app):
     )
     page.locator(f"#{START_BUTTON_HOME_ID}").click()
     wait_for_dash_callback(page)
-    page.wait_for_timeout(1500)
 
     expect(page.locator(f"#{ERROR_MODAL_SHARED_ID}")).not_to_be_visible()
+    check_all_errors(page)
     assert page.url == f"{BASE_URL}/"
