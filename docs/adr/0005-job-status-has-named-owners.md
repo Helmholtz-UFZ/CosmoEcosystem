@@ -52,6 +52,9 @@ they are allowed from.
   skips it and purges job log records without a job row. A delete removes the row
   first (one conditional delete), so a storage failure afterwards leaves a remote
   orphan, reported by the cleanup, instead of a row to retry.
-- Known gaps: a web process dying between the guard and the enqueue leaves a queued
-  run without a message; an overtaken run's job log records still reach the job's
-  job log.
+- Known gaps: a reset runs `mark_pending` first and then deletes the results and the
+  job log, so a submit from another tab can queue the job in between, and the reset
+  still deletes files and job log records the new run is about to use (the run fails
+  or starts with an empty job log; the user resets again). A web process dying
+  between the guard and the enqueue leaves a queued run without a message. An
+  overtaken run's job log records still reach the job's job log.

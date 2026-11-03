@@ -473,6 +473,10 @@ class DbManager:
             )
             applied = result.rowcount == 1
             if applied:
+                # Inserted here, not through job_log.append: that opens its own
+                # session, and the status write and its job log line must commit
+                # together, or a database error between the two leaves a FAILED
+                # row with no reason (or a reason for a row still RUNNING).
                 session.execute(
                     insert(JobLogTable),
                     [

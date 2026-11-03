@@ -126,7 +126,9 @@ class Job(BaseJob):
         Args:
             job_id: Load this existing job.
             new_job_id: Create a new job under this id.
-            model: Create a job from an already-built config model.
+            model: Create a new job from an already-built config model; an
+                existing job id raises ``JobExists``. To change an existing
+                job's input use ``Job(job_id=...)`` and ``save_input()``.
             overwrite: Deprecated and ignored. Loading a job reads its row only;
                 ``job_persistence.work_dir`` fetches files and always lets
                 object storage win. Will be removed in the next version.
@@ -214,7 +216,17 @@ class Job(BaseJob):
         self.working_dir = job_persistence.local_dir(self.job_id)
 
     def _init_from_model(self, model):
-        """Initialize job from model."""
+        """Create a new job from a model: insert only, never an existing id.
+
+        An existing job's input is written through ``save_input`` (conditional
+        on PENDING); an insert here would overwrite the input, start date and
+        version of a started job (ADR 0005).
+
+        Raises:
+            JobExists: If a job with the model's id exists.
+        """
+        if DbManager.check_existence(model.job_id):
+            raise JobExists(model.job_id)
         self.job_id = model.job_id
         self.model = model
         self.start_date = date.today()

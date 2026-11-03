@@ -13,7 +13,7 @@ from cosmo_ecosystem import job_log, job_persistence, job_run
 from cosmo_ecosystem.constants import LOG_FILE_NAME
 from cosmo_ecosystem.config import OBJECT_STORAGE_BUCKET, OBJECT_STORAGE_REMOTE_NAME
 from cosmo_ecosystem.db_manager import DbManager
-from cosmo_ecosystem.error_handling import FileValidationError
+from cosmo_ecosystem.error_handling import FileValidationError, JobExists
 from cosmo_ecosystem.job import Job
 from cosmo_ecosystem.job_log import JobLogHandler
 from cosmo_ecosystem.job_persistence import delete_job, load_row, local_dir
@@ -390,3 +390,29 @@ def test_delete_returns_false_for_a_running_job_and_true_otherwise(new_job):
 
     assert Job(job_id=new_job.job_id).delete() is True
     assert not DbManager.check_existence(new_job.job_id)
+
+
+def test_creating_a_job_from_a_model_refuses_an_existing_id(new_job):
+    """Job(model=...) on a started job's id cannot overwrite its row."""
+    job_run.mark_queued(new_job.job_id)
+    before = load_row(new_job.job_id)
+    model = ProfileConfig(job_id=new_job.job_id, upload_file_name="other.csv")
+
+    with pytest.raises(JobExists):
+        Job(model=model)
+
+    assert load_row(new_job.job_id) == before
+
+
+def test_creating_a_job_from_a_model_inserts_a_new_pending_job(framework_job):
+    """A model with a fresh id becomes a PENDING, not submitted job."""
+    job_id = "test_fw_job_from_model"
+    try:
+        job = Job(model=ProfileConfig(job_id=job_id))
+
+        row = load_row(job_id)
+        assert (row["status"], row["submitted"]) == ("PENDING", False)
+        assert job.job_id == job_id
+    finally:
+        drop_row(job_id)
+        delete_job(job_id)
