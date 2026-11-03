@@ -25,6 +25,9 @@ device-specific.
   server too.
 - **Work on app branches in worktrees.** Use `~/git/<repo>.wt/<short-name>`, per
   `~/git/CLAUDE.md`. This is mandatory when the main checkout has uncommitted work.
+  A branch stacked on another unmerged branch records that base's commit SHA in its
+  ticket, and diffs and the later rebase onto `origin/main` use the SHA: the base
+  branch is usually deleted once it merges (#6 on 2026-11-03).
 - **Merge order: framework release first, then the apps.** An app merge request is opened
   against the overlay but lands only after its pin is bumped to the released tag, because
   CI has no overlay.
