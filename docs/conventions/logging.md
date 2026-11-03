@@ -93,10 +93,19 @@ A computation task calls `job_run.run`; that call owns the job log:
 
 ```python
 def start_computation_task(self, job_id):
-    return job_run.run(job_id, compute, excluded_packages=EXCLUDED_LOG_PACKAGES)
+    status = job_run.run(job_id, compute, excluded_packages=EXCLUDED_LOG_PACKAGES)
+    if status is None:
+        return None  # dropped delivery: no post-run work
+    ...
 ```
 
-- `run` clears the job log, attaches a `JobLogHandler` to the root logger (and
+- `run` first claims the run in the job row. A delivery that loses the claim
+  touches neither the row nor the job log (it must not clear the job log of a
+  live or lost run), logs one WARNING line to the worker log and returns `None`
+  ([ADR 0004](../adr/0004-lost-job-runs-are-swept-not-retried.md)).
+- `run`'s heartbeat thread logs a failed heartbeat write to the worker log only
+  (logger `cosmo_ecosystem.job_run.heartbeat`, kept out of the job log).
+- After a won claim, `run` clears the job log, attaches a `JobLogHandler` to the root logger (and
   lowers the root level to DEBUG) for the run, and detaches it in `finally`.
   Every record logged during the run lands in the job log *and* the worker log.
 - `run` flushes the handler before it writes the final status (COMPLETED or

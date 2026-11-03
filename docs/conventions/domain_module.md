@@ -19,7 +19,7 @@ circular import that points away from the cause.
   `ModuleNotFoundError: <app>`. The old `-A <app>.celery_app` hid this.
 - **The domain module exposes exactly these attributes:**
   - `task_specs`: a list of `TaskSpec`, the app's own tasks only. The framework adds
-    its cleanup and test task.
+    its cleanup, its sweep of lost job runs and its test task.
   - `celery_config`: a `BaseCeleryConfig` subclass with domain settings only
     (timezone, time limits), each next to the reason for it.
   - `excluded_log_packages`: a tuple of packages muted in worker logging. The

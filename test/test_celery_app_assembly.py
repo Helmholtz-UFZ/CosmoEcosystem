@@ -21,6 +21,7 @@ from cosmo_ecosystem.celery_config import BaseCeleryConfig
 
 NAME_CLEANUP_TASK = "cosmo_ecosystem.tasks.maintenance_tasks.cleanup"
 NAME_TEST_TASK = "cosmo_ecosystem.tasks.test_tasks.long_running_test"
+NAME_SWEEP_TASK = "cosmo_ecosystem.tasks.sweep_tasks.sweep_lost_runs"
 
 FAKE_DOMAIN = """
 from celery.schedules import crontab
@@ -75,6 +76,11 @@ print(json.dumps({
             "schedule"
         ]
     ),
+    "sweep_schedule": repr(
+        celery.conf.beat_schedule["cosmo_ecosystem.tasks.sweep_tasks.sweep_lost_runs"][
+            "schedule"
+        ]
+    ),
     "timezone": celery.conf.timezone,
     "manager_wraps_it": background_job_manager.app is celery,
 }))
@@ -115,6 +121,7 @@ def report(tmp_path):
 def test_framework_and_domain_tasks_are_registered_by_name(report):
     assert {
         NAME_CLEANUP_TASK,
+        NAME_SWEEP_TASK,
         NAME_TEST_TASK,
         "fake_domain.compute",
         "fake_domain.refresh",
@@ -124,6 +131,7 @@ def test_framework_and_domain_tasks_are_registered_by_name(report):
 def test_every_task_is_routed_to_its_queue(report):
     assert report["routes"] == {
         NAME_CLEANUP_TASK: {"queue": "maintenance"},
+        NAME_SWEEP_TASK: {"queue": "maintenance"},
         NAME_TEST_TASK: {"queue": "test"},
         "fake_domain.compute": {"queue": "crunch"},
         "fake_domain.refresh": {"queue": "nightly"},
@@ -135,9 +143,10 @@ def test_worker_queues_cover_every_routed_queue_and_the_default(report):
     assert report["queues"] == ["crunch", "default", "maintenance", "nightly", "test"]
 
 
-def test_beat_holds_the_cleanup_and_the_domain_schedule(report):
+def test_beat_holds_the_framework_and_the_domain_schedules(report):
     assert report["beat"] == {
         NAME_CLEANUP_TASK: {"task": NAME_CLEANUP_TASK, "queue": "maintenance"},
+        NAME_SWEEP_TASK: {"task": NAME_SWEEP_TASK, "queue": "maintenance"},
         "fake_domain.refresh": {"task": "fake_domain.refresh", "queue": "nightly"},
     }
 
@@ -145,6 +154,11 @@ def test_beat_holds_the_cleanup_and_the_domain_schedule(report):
 def test_the_cleanup_runs_nightly_at_three(report):
     """03:00 every day; Beat reads it in the app's timezone."""
     assert report["cleanup_schedule"] == ("<crontab: 0 3 * * * (m/h/dM/MY/d)>")
+
+
+def test_the_sweep_runs_every_five_minutes(report):
+    """A lost job run shows FAILED at most threshold plus five minutes after it died."""
+    assert report["sweep_schedule"] == "<crontab: */5 * * * * (m/h/dM/MY/d)>"
 
 
 def test_the_base_config_holds_no_schedule_of_its_own():

@@ -31,10 +31,12 @@ from cosmo_ecosystem.error_handling import (
 from cosmo_ecosystem.logger import get_logger_config_worker
 from cosmo_ecosystem.task_spec import BeatEntry, TaskSpec
 from cosmo_ecosystem.tasks.maintenance_tasks import cleanup_task
+from cosmo_ecosystem.tasks.sweep_tasks import sweep_task
 from cosmo_ecosystem.tasks.test_tasks import long_running_test_task
 
 NAME_CLEANUP_TASK = "cosmo_ecosystem.tasks.maintenance_tasks.cleanup"
 NAME_TEST_TASK = "cosmo_ecosystem.tasks.test_tasks.long_running_test"
+NAME_SWEEP_TASK = "cosmo_ecosystem.tasks.sweep_tasks.sweep_lost_runs"
 
 # Settings the task specs own; a domain config that sets one is rejected.
 SPEC_OWNED_SETTINGS = ("task_routes", "beat_schedule")
@@ -47,6 +49,15 @@ FRAMEWORK_TASK_SPECS = [
         base_task=None,
         # 03:00 in the app's configured timezone.
         beat=BeatEntry(schedule=crontab(minute=0, hour=3)),
+    ),
+    TaskSpec(
+        fn=sweep_task,
+        name=NAME_SWEEP_TASK,
+        queue="maintenance",
+        base_task=None,
+        # Every 5 minutes: a lost job run shows FAILED at most
+        # sweep_tasks.LOST_RUN_THRESHOLD plus 5 minutes after it died (ADR 0004).
+        beat=BeatEntry(schedule=crontab(minute="*/5")),
     ),
     TaskSpec(
         fn=long_running_test_task,

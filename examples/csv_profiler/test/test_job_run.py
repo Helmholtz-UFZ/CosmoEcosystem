@@ -14,6 +14,7 @@ from sqlalchemy.orm import sessionmaker
 from cosmo_ecosystem import job_log, job_persistence, job_run, object_storage_manager
 from cosmo_ecosystem.config import OBJECT_STORAGE_BUCKET, OBJECT_STORAGE_REMOTE_NAME
 from cosmo_ecosystem.db_manager import DbManager
+from cosmo_ecosystem.error_handling import JobNotFound
 from cosmo_ecosystem.job_log import JobLogHandler
 from cosmo_ecosystem.job_persistence import load_row, local_dir
 from cosmo_ecosystem.object_storage_manager import (
@@ -26,6 +27,7 @@ from cosmo_ecosystem.object_storage_manager import (
 import csv_profiler.domain  # noqa: F401
 from csv_profiler.pydantic_models import ProfileConfig
 from csv_profiler.tasks.computation_tasks import profile
+from job_row_helpers import row_and_log, set_heartbeat
 
 SAMPLE_CSV = os.path.join(os.path.dirname(__file__), "sample_mixed.csv")
 CSV_NAME = "sample_mixed.csv"
@@ -34,7 +36,7 @@ log = logging.getLogger(__name__)
 
 
 def _submit(job_id, input_data=None):
-    """Create job_id as submitted: its CSV in the remote prefix, its row PENDING."""
+    """Create job_id as submitted: its CSV in the remote prefix, its run queued."""
     if input_data is None:
         input_data = ProfileConfig(
             job_id=job_id, upload_file_name=CSV_NAME
@@ -55,6 +57,7 @@ def _submit(job_id, input_data=None):
             "version": "0.1.0",
         }
     )
+    job_run.mark_queued(job_id)
 
 
 def _remote_files(job_id):
@@ -161,16 +164,16 @@ def test_a_job_whose_input_cannot_be_loaded_ends_failed_with_the_reason():
         _cleanup(job_id)
 
 
-def test_a_job_without_a_row_ends_failed_and_no_row_appears():
-    """A task for a job deleted meanwhile fails quietly instead of resurrecting it."""
+def test_a_job_without_a_row_is_dropped_and_no_row_appears():
+    """A task for a job deleted meanwhile is dropped instead of resurrecting it."""
     job_id = "test_job_run_no_row"
 
     try:
         status = job_run.run(job_id, _failing_compute)
 
-        assert status == "FAILED"
+        assert status is None
         assert not DbManager.check_existence(job_id)
-        assert "JobNotFound" in job_log.read(job_id)
+        assert job_log.read(job_id) == ""
     finally:
         _cleanup(job_id)
 
@@ -214,6 +217,7 @@ def test_a_new_run_starts_with_an_empty_job_log():
 
     try:
         job_run.run(job_id, computing("first run"))
+        job_run.mark_queued(job_id)
         job_run.run(job_id, computing("second run"))
 
         content = job_log.read(job_id)
@@ -250,6 +254,7 @@ def test_no_job_log_handler_is_left_on_the_root_logger():
     try:
         job_run.run(job_id, lambda job_id, work_dir: None)
         after_success = _job_log_handlers()
+        job_run.mark_queued(job_id)
         job_run.run(job_id, _failing_compute)
         after_failure = _job_log_handlers()
 
@@ -379,3 +384,262 @@ def test_whoever_sees_the_final_status_also_sees_the_last_records(
     finally:
         monkeypatch.undo()
         _cleanup(job_id)
+
+
+def test_mark_queued_makes_the_row_running_with_no_heartbeat():
+    """A queued run is RUNNING, and no worker has claimed it yet."""
+    job_id = "test_job_run_mark_queued"
+    _submit(job_id)
+    job_persistence.update_columns(job_id, {"status": "FAILED"})
+    set_heartbeat(job_id, "11 minutes")
+
+    try:
+        job_run.mark_queued(job_id)
+
+        row = load_row(job_id)
+        assert (row["status"], row["heartbeat_at"]) == ("RUNNING", None)
+    finally:
+        _cleanup(job_id)
+
+
+def test_a_second_delivery_of_a_live_run_is_dropped():
+    """Two deliveries of one message never compute the same job twice."""
+    job_id = "test_job_run_claimed_once"
+    _submit(job_id)
+    second_delivery = []
+
+    def compute_while_delivered_again(job_id, work_dir):
+        """Receive the same job again while this run computes."""
+        second_delivery.append(job_run.run(job_id, _failing_compute))
+
+    try:
+        status = job_run.run(job_id, compute_while_delivered_again)
+
+        assert (status, second_delivery) == ("COMPLETED", [None])
+        assert load_row(job_id)["status"] == "COMPLETED"
+    finally:
+        _cleanup(job_id)
+
+
+def test_a_won_claim_gives_the_row_a_heartbeat():
+    """From its first write on, a run is told apart from a queued one."""
+    job_id = "test_job_run_claim_beats"
+    _submit(job_id)
+    heartbeat_during_run = []
+
+    def compute(job_id, work_dir):
+        heartbeat_during_run.append(load_row(job_id)["heartbeat_at"])
+
+    try:
+        job_run.run(job_id, compute)
+
+        assert heartbeat_during_run[0] is not None
+    finally:
+        _cleanup(job_id)
+
+
+def test_a_redelivery_of_a_run_with_a_heartbeat_changes_nothing(caplog):
+    """A message redelivered after its worker died does not restart the run."""
+    job_id = "test_job_run_redelivered"
+    _submit(job_id)
+    set_heartbeat(job_id, "11 minutes")
+    job_log.append(job_id, "the lost run's last words")
+    before = row_and_log(job_id)
+
+    with caplog.at_level(logging.INFO, logger="cosmo_ecosystem.job_run"):
+        status = job_run.run(job_id, _failing_compute)
+
+    try:
+        assert status is None
+        assert row_and_log(job_id) == before
+        drops = [r for r in caplog.records if r.name == "cosmo_ecosystem.job_run"]
+        assert len(drops) == 1
+        assert job_id in drops[0].getMessage()
+        assert _job_log_handlers() == []
+    finally:
+        _cleanup(job_id)
+
+
+@pytest.mark.parametrize("status", ["PENDING", "COMPLETED", "FAILED"])
+def test_a_delivery_for_a_row_that_is_not_running_changes_nothing(status):
+    """A stale message after a reset, or one for a cancelled job, is dropped."""
+    job_id = "test_job_run_not_running"
+    _submit(job_id)
+    job_persistence.update_columns(job_id, {"status": status})
+    job_log.append(job_id, "cancelled by user")
+    before = row_and_log(job_id)
+
+    try:
+        assert job_run.run(job_id, _failing_compute) is None
+        assert row_and_log(job_id) == before
+    finally:
+        _cleanup(job_id)
+
+
+def _wait_for_a_newer_heartbeat(job_id, than, timeout=10):
+    """Return the job's heartbeat once it is newer than ``than``, else None."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        heartbeat = load_row(job_id)["heartbeat_at"]
+        if heartbeat > than:
+            return heartbeat
+        time.sleep(0.05)
+    return None
+
+
+def test_the_heartbeat_advances_while_the_computation_runs():
+    """A long computation is never mistaken for a lost one."""
+    job_id = "test_job_run_heartbeat"
+    _submit(job_id)
+    advanced = []
+
+    def compute(job_id, work_dir):
+        claimed_at = load_row(job_id)["heartbeat_at"]
+        advanced.append(_wait_for_a_newer_heartbeat(job_id, claimed_at) is not None)
+
+    try:
+        job_run.run(job_id, compute, heartbeat_interval=0.2)
+
+        assert advanced == [True]
+    finally:
+        _cleanup(job_id)
+
+
+def test_the_heartbeat_stops_with_the_run():
+    """A finished run leaves no thread behind that keeps the row looking alive."""
+    job_id = "test_job_run_heartbeat_stops"
+    _submit(job_id)
+
+    try:
+        job_run.run(job_id, lambda job_id, work_dir: None, heartbeat_interval=0.2)
+        last = load_row(job_id)["heartbeat_at"]
+
+        assert _wait_for_a_newer_heartbeat(job_id, last, timeout=1) is None
+    finally:
+        _cleanup(job_id)
+
+
+def test_a_failed_heartbeat_is_logged_and_retried(monkeypatch, caplog):
+    """A database hiccup costs one beat, not the run's sign of life."""
+    job_id = "test_job_run_heartbeat_outage"
+    _submit(job_id)
+    unreachable = create_engine("postgresql+psycopg2://nobody:none@127.0.0.1:1/none")
+    advanced = []
+
+    def compute_through_an_outage(job_id, work_dir):
+        """Keep the database away until a beat failed, then wait for the next one."""
+        claimed_at = load_row(job_id)["heartbeat_at"]
+        monkeypatch.setattr(DbManager, "_Session", sessionmaker(bind=unreachable))
+        deadline = time.monotonic() + 10
+        while not _heartbeat_failed(caplog) and time.monotonic() < deadline:
+            time.sleep(0.05)
+        monkeypatch.undo()
+        advanced.append(_wait_for_a_newer_heartbeat(job_id, claimed_at) is not None)
+
+    try:
+        status = job_run.run(job_id, compute_through_an_outage, heartbeat_interval=0.2)
+
+        assert _heartbeat_failed(caplog)
+        assert (status, advanced) == ("COMPLETED", [True])
+        # Worker log only: the job log is the database that just failed.
+        assert "failed and is retried" not in job_log.read(job_id)
+    finally:
+        monkeypatch.undo()
+        _cleanup(job_id)
+
+
+def _heartbeat_failed(caplog):
+    """Return whether the run reported a failed heartbeat write."""
+    return any(
+        record.name.startswith("cosmo_ecosystem.job_run")
+        and record.levelname == "WARNING"
+        and "heartbeat" in record.getMessage()
+        for record in caplog.records
+    )
+
+
+def test_a_live_runs_heartbeat_never_claims_a_requeued_row():
+    """A run swept by mistake and then resubmitted is not kept alive by the old run.
+
+    The old run's heartbeat thread goes on beating; the re-queued row must still
+    have no heartbeat afterwards, so the new delivery wins its claim.
+    """
+    job_id = "test_job_run_requeued_under_a_live_run"
+    _submit(job_id)
+    seen = []
+
+    def compute_while_swept_and_resubmitted(job_id, work_dir):
+        """Re-queue the row under this live run, let it beat, deliver again."""
+        job_run.mark_queued(job_id)
+        time.sleep(1)  # five heartbeat intervals
+        seen.append(load_row(job_id)["heartbeat_at"])
+        seen.append(job_run.run(job_id, lambda job_id, work_dir: None))
+
+    try:
+        job_run.run(job_id, compute_while_swept_and_resubmitted, heartbeat_interval=0.2)
+
+        assert seen == [None, "COMPLETED"]
+    finally:
+        _cleanup(job_id)
+
+
+def _claim_fails(job_id):
+    """A claim that hits a database error after it was sent."""
+    raise OperationalError("UPDATE jobs", {}, Exception("hiccup"))
+
+
+def test_a_claim_that_fails_on_a_still_queued_row_ends_the_run_failed(monkeypatch):
+    """A database hiccup at the claim does not leave a job queued forever."""
+    job_id = "test_job_run_claim_fails_queued"
+    _submit(job_id)
+    monkeypatch.setattr(DbManager, "claim_run", _claim_fails)
+
+    try:
+        status = job_run.run(job_id, _failing_compute)
+
+        assert status == "FAILED"
+        assert load_row(job_id)["status"] == "FAILED"
+    finally:
+        monkeypatch.undo()
+        _cleanup(job_id)
+
+
+def test_a_claim_that_fails_leaves_a_row_another_delivery_claimed_alone(monkeypatch):
+    """A failed claim never fails a run that another delivery is computing."""
+    job_id = "test_job_run_claim_fails_claimed"
+    _submit(job_id)
+    set_heartbeat(job_id)
+    before = row_and_log(job_id)
+    monkeypatch.setattr(DbManager, "claim_run", _claim_fails)
+
+    try:
+        status = job_run.run(job_id, _failing_compute)
+
+        assert status == "FAILED"
+        assert row_and_log(job_id) == before
+    finally:
+        monkeypatch.undo()
+        _cleanup(job_id)
+
+
+def test_mark_pending_returns_the_row_to_pending_with_no_heartbeat():
+    """A reset job carries no trace of its last run's sign of life."""
+    job_id = "test_job_run_mark_pending"
+    _submit(job_id)
+    job_persistence.update_columns(job_id, {"status": "FAILED"})
+    set_heartbeat(job_id, "11 minutes")
+
+    try:
+        job_run.mark_pending(job_id)
+
+        row = load_row(job_id)
+        assert (row["status"], row["heartbeat_at"]) == ("PENDING", None)
+    finally:
+        _cleanup(job_id)
+
+
+@pytest.mark.parametrize("mark", [job_run.mark_queued, job_run.mark_pending])
+def test_marking_a_job_without_a_row_raises_job_not_found(mark):
+    """Queueing or resetting a deleted job fails loud instead of writing nothing."""
+    with pytest.raises(JobNotFound):
+        mark("test_job_run_mark_no_row")

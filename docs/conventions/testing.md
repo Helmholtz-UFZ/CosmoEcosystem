@@ -200,6 +200,10 @@ The framework suite at the repo root needs no services at all.
 - `dash_app` (session) — starts the Dash app via werkzeug make_server in a background thread, polls until responsive, shuts down cleanly
 - `page` (function) — wraps pytest-playwright's page fixture; captures HTML, console logs, server logs, and worker logs on failure
 - `celery_worker` (session) — starts a real Celery worker subprocess with log capture, terminates on teardown
+  - A test that kills a worker starts its own worker instead (`test_lost_job_runs.py`).
+    kombu restores an unacked message only at worker start and then about every 100 s,
+    once it is older than `visibility_timeout`, so a redelivery test waits out the
+    timeout before restarting the worker. See [ADR 0004](../adr/0004-lost-job-runs-are-swept-not-retried.md).
 - `logger` — configured logger with suppressed third-party noise
 
 ## Artifacts

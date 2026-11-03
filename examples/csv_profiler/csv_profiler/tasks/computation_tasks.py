@@ -45,9 +45,16 @@ def start_computation_task(self, job_id):
     """Celery task: run CSV statistical profiling for a job.
 
     The job run writes the job's status; a failed run is a successful task
-    (ADR 0002).
+    (ADR 0002). A delivery the job run drops (it lost the claim, ADR 0004)
+    returns ``None`` and does no post-run work.
 
     Args:
         job_id: ID of the job to process
     """
-    return job_run.run(job_id, profile)
+    status = job_run.run(job_id, profile)
+    if status is None:
+        # Dropped delivery: the run is someone else's, or no run at all. Nothing
+        # follows here, but this branch is the template for an app with
+        # post-run work (end mail, notified_end): it returns here, before it.
+        return None
+    return status

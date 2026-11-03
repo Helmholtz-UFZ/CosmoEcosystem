@@ -75,8 +75,9 @@ beat_thread.start()
   there too. The test suites start their worker without `--beat`, and no test needs the
   schedule.
 - **Where the schedule comes from:** `cosmo_ecosystem.celery_app` derives
-  `beat_schedule` from the task specs: the framework cleanup at 03:00 (queue
-  `maintenance`) and every domain spec with a `beat`, in the app's configured `timezone`. A domain
+  `beat_schedule` from the task specs: the framework cleanup at 03:00 and the sweep of
+  lost job runs every 5 minutes (both on queue `maintenance`, see
+  [ADR 0004](../adr/0004-lost-job-runs-are-swept-not-retried.md)) and every domain spec with a `beat`, in the app's configured `timezone`. A domain
   `celery_config` that sets `beat_schedule` itself is rejected
   ([ADR 0003](../adr/0003-framework-assembles-the-celery-app.md)).
 - **Schedule file:** Beat keeps its state in `beat_schedule_filename`

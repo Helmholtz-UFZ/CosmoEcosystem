@@ -15,6 +15,8 @@ from sqlalchemy import (
     String,
     Text,
     create_engine,
+    func,
+    update,
 )
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
@@ -316,6 +318,106 @@ class DbManager:
                 return True
 
     @classmethod
+    def set_status_without_heartbeat(cls, job_id, status):
+        """Write status and clear the heartbeat of the job's row, in one update.
+
+        Raises:
+            JobNotFound: If the job has no row.
+        """
+        log.debug(f"Set job {job_id} to {status} without a heartbeat.")
+        job_table = cls._job_table()
+        with cls.session_scope() as session:
+            result = session.execute(
+                update(job_table)
+                .where(job_table.job_id == job_id)
+                .values(status=status, heartbeat_at=None)
+            )
+            if result.rowcount == 0:
+                raise JobNotFound(job_id)
+
+    @classmethod
+    def claim_run(cls, job_id) -> bool:
+        """Give a queued run's row its first heartbeat; return whether it was queued.
+
+        One conditional update (``status = 'RUNNING' AND heartbeat_at IS NULL``),
+        so of any number of concurrent callers at most one gets True.
+        """
+        job_table = cls._job_table()
+        with cls.session_scope() as session:
+            result = session.execute(
+                update(job_table)
+                .where(
+                    job_table.job_id == job_id,
+                    job_table.status == "RUNNING",
+                    job_table.heartbeat_at.is_(None),
+                )
+                .values(heartbeat_at=func.now())
+            )
+            return result.rowcount == 1
+
+    @classmethod
+    def fail_queued_run(cls, job_id) -> bool:
+        """Write FAILED to the job's row if its run is still queued; return whether.
+
+        Queued means RUNNING with no heartbeat: a row another delivery claimed
+        is left alone.
+        """
+        job_table = cls._job_table()
+        with cls.session_scope() as session:
+            result = session.execute(
+                update(job_table)
+                .where(
+                    job_table.job_id == job_id,
+                    job_table.status == "RUNNING",
+                    job_table.heartbeat_at.is_(None),
+                )
+                .values(status="FAILED")
+            )
+            return result.rowcount == 1
+
+    @classmethod
+    def refresh_heartbeat(cls, job_id):
+        """Set the heartbeat of the job's row to now(), if a run has claimed it.
+
+        Only a RUNNING row that already has a heartbeat: a re-queued row (no
+        heartbeat) belongs to the next delivery's claim, never to a thread of
+        an older run that is still alive (swept by mistake, then resubmitted).
+        """
+        job_table = cls._job_table()
+        with cls.session_scope() as session:
+            session.execute(
+                update(job_table)
+                .where(
+                    job_table.job_id == job_id,
+                    job_table.status == "RUNNING",
+                    job_table.heartbeat_at.is_not(None),
+                )
+                .values(heartbeat_at=func.now())
+            )
+
+    @classmethod
+    def fail_runs_without_heartbeat_since(cls, threshold):
+        """Write FAILED to every RUNNING row whose heartbeat is older than threshold.
+
+        One update; a queued row (no heartbeat) is never touched.
+
+        Returns:
+            ``(job_id, heartbeat_at)`` of every row it failed.
+        """
+        job_table = cls._job_table()
+        with cls.session_scope() as session:
+            result = session.execute(
+                update(job_table)
+                .where(
+                    job_table.status == "RUNNING",
+                    job_table.heartbeat_at < func.now() - threshold,
+                )
+                .values(status="FAILED")
+                .returning(job_table.job_id, job_table.heartbeat_at)
+            )
+            return [(row.job_id, row.heartbeat_at) for row in result]
+
+    @classmethod
     def get_job_columns(cls, job_id):
         """Retrieve all columns of a specific job entry based on its job ID."""
         log.debug(f"Get columns for job: {job_id}")
@@ -373,7 +475,7 @@ class DbManager:
 
 
 class JobColumns:
-    """The six columns every app's ``jobs`` table is measured to carry.
+    """The columns every app's ``jobs`` table carries.
 
     Not mapped and not a table: an app declares its own concrete class from
     this mixin, on the framework ``Base``, alongside whatever extra columns its
@@ -389,7 +491,9 @@ class JobColumns:
 
     The intersection, measured across COSMOPOLITAN, COSMONAUT and the reference
     domain on 2026-08-21: COSMONAUT has neither ``input_data`` nor ``logs``, so
-    those two stay app-side rather than in this mixin. See
+    those two stay app-side rather than in this mixin. ``heartbeat_at`` is not
+    measured but required: the framework's job run writes it (ADR 0004), so every
+    app's table has to grow it before the app deploys this mapping. See
     docs/conventions/database_schema.md.
     """
 
@@ -399,6 +503,9 @@ class JobColumns:
     notified_end = Column(Boolean)
     status = Column(String)
     version = Column(String)
+    # The job run's sign of life, always the database's now(); NULL while the
+    # run is queued and no worker has claimed it (cosmo_ecosystem.job_run).
+    heartbeat_at = Column(DateTime(timezone=True))
 
 
 class LogTable(Base):

@@ -53,6 +53,7 @@ class JobColumns:
     notified_end = Column(Boolean)
     status = Column(String)
     version = Column(String)
+    heartbeat_at = Column(DateTime(timezone=True))
 ```
 
 Each app declares its own concrete class from it, on the framework `Base`,
@@ -101,6 +102,16 @@ see below.) The `v0.5.0` cut had included them, measured only against
 COSMOPOLITAN and csv_profiler, and broke the first time COSMONAUT tried to
 declare a job table against it.
 
+Plus one column that is not measured but required: **`heartbeat_at`**
+(`TIMESTAMPTZ`, nullable, no default), added in `v0.15.0` for lost job runs
+([ADR 0004](../adr/0004-lost-job-runs-are-swept-not-retried.md)). The framework's
+job run writes it, always with the database's `now()`:
+
+- `NULL`: the run is queued and no worker has claimed it.
+- set: a worker claimed the run (`job_run.run`'s first write) and refreshes it every
+  60 s while it computes. The sweep fails a RUNNING row whose heartbeat is older
+  than 10 minutes.
+
 What stays app-side, and why:
 
 | Column | Where | Why it is not in the intersection |
@@ -122,6 +133,25 @@ subclass — SQLAlchemy simply does not map it. A **missing** column is not: the
 first query against it fails at runtime. Cutting the intersection rather than
 the union is what makes the mixin safe across several physical schemas.
 
+### Queueing a run, and resetting a job, in an own job class
+
+The job run claims only a row that is `RUNNING` with `heartbeat_at IS NULL`. Every
+job class therefore keeps three rules (the framework `Job` does):
+
+- **Submit queues through `job_run.mark_queued(job_id)`**, before the enqueue
+  (ADR 0002). It writes `status='RUNNING'` and `heartbeat_at=NULL` in one update.
+  A submit that writes `RUNNING` itself leaves the last run's heartbeat in the row:
+  the new run loses its claim, is dropped, and the sweep fails the job.
+- **A reset returns the job to PENDING through `job_run.mark_pending(job_id)`**:
+  `status='PENDING'` and `heartbeat_at=NULL` in one update, `JobNotFound` without a
+  row. An app without a reset, which resubmits a FAILED job directly
+  (COSMOPOLITAN), is covered by `mark_queued` alone: it clears the heartbeat too.
+- **A save never writes `heartbeat_at` back.** A job loaded before the run's last
+  beat would overwrite it with an older value (`job.RUN_OWNED_COLUMNS`).
+
+`job_run.run` returns `None` for a delivery that lost the claim; the app's task
+returns at once then, before any post-run work (end mail, `notified_end`).
+
 ### Changing it
 
 Adding a column to `JobColumns` is a framework-wide schema commitment: every
@@ -136,7 +166,7 @@ concrete class, same as `input_data` above.
 
 ## The framework `Job`'s extra-column contract
 
-`JobColumns` fixes the six columns every app has. The concrete
+`JobColumns` fixes the columns every app has. The concrete
 `cosmo_ecosystem.job.Job` needs one more and reads and writes it on every load
 and save:
 
