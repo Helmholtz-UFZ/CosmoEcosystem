@@ -141,10 +141,25 @@ def test_two_threads_on_a_fresh_handler_build_one_pool(fake_pool):
     assert len(fake_pool.built) == 1
 
 
+class _Clock:
+    """A clock the test moves by hand."""
+
+    def __init__(self):
+        self.now = 1000.0
+
+    def __call__(self):
+        return self.now
+
+
 @pytest.fixture
-def handler_errors(fake_pool, monkeypatch):
+def clock():
+    return _Clock()
+
+
+@pytest.fixture
+def handler_errors(fake_pool, monkeypatch, clock):
     """A handler whose ``handleError`` calls are collected instead of printed."""
-    handler = logger_module.PostgreSQLHandler({})
+    handler = logger_module.PostgreSQLHandler({}, clock=clock)
     errors = []
     monkeypatch.setattr(handler, "handleError", errors.append)
     return handler, errors
@@ -168,25 +183,63 @@ def test_an_unreachable_database_does_not_raise_into_the_log_call(
     assert len(errors) == 1
 
 
-def test_a_failed_pool_build_is_tried_again_by_the_next_emit(
-    monkeypatch, handler_errors
-):
+def _flaky_factory(monkeypatch, failures):
+    """Patch the pool factory to raise ``failures`` times, then build; return the call log."""
     calls = []
 
-    def flaky(*args, **kwargs):
-        calls.append(1)
-        if len(calls) == 1:
+    def factory(*args, **kwargs):
+        calls.append(kwargs)
+        if len(calls) <= failures:
             raise psycopg2.OperationalError("starting up")
         return _FakePool(*args, **kwargs)
 
-    monkeypatch.setattr(logger_module.pool, "SimpleConnectionPool", flaky)
+    monkeypatch.setattr(logger_module.pool, "SimpleConnectionPool", factory)
+    return calls
+
+
+def test_a_failed_pool_build_is_not_retried_within_the_cooldown(
+    monkeypatch, handler_errors, clock
+):
+    """Every record would otherwise block on a connect attempt under the handler lock."""
+    calls = _flaky_factory(monkeypatch, failures=1000)
     handler, errors = handler_errors
 
+    for _ in range(5):
+        clock.now += logger_module.POOL_RETRY_COOLDOWN_SECONDS / 10
+        handler.emit(_record())
+
+    assert len(calls) == 1
+    assert len(errors) == 5  # every record is reported dropped
+
+
+def test_a_failed_pool_build_is_retried_after_the_cooldown(
+    monkeypatch, handler_errors, clock
+):
+    calls = _flaky_factory(monkeypatch, failures=1)
+    handler, errors = handler_errors
+
+    handler.emit(_record())
+    clock.now += logger_module.POOL_RETRY_COOLDOWN_SECONDS + 1
     handler.emit(_record())
     handler.emit(_record())
 
     assert len(calls) == 2
-    assert len(errors) == 1
+    assert len(errors) == 1  # only the first record failed
+
+
+def test_the_pool_connects_with_a_timeout(fake_pool, monkeypatch):
+    """A connect to a dead host must not block the log call for the OS timeout."""
+    params = []
+    monkeypatch.setattr(
+        logger_module.pool,
+        "SimpleConnectionPool",
+        lambda *args, **kwargs: params.append(kwargs) or _FakePool(*args, **kwargs),
+    )
+
+    logger_module.PostgreSQLHandler({"host": "db"}).emit(_record())
+
+    assert params[0]["connect_timeout"] == 5
+    assert params[0]["host"] == "db"
 
 
 def test_a_failing_getconn_goes_to_handle_error(fake_pool, handler_errors):

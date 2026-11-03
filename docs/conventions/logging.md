@@ -84,7 +84,7 @@ Configuration is in `src/logger.py`:
   would hand its socket to every forked worker. A child builds its own pool after
   a fork and keeps the inherited one alive, never closed (closing it would
   terminate the parent's session). A failure to connect or write goes to
-  `handleError`, never into the `log.*()` call; the next record tries again.
+  `handleError`, never into the `log.*()` call. Connecting times out after 5 s, and after a failed connect records are dropped (reported to `handleError`) for 30 s before the next attempt, so an outage never blocks the log calls.
 - Computation tasks: the worker config, plus the job log (below)
 - Third-party package filtering to reduce noise
 

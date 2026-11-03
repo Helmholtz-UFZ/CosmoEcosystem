@@ -9,6 +9,7 @@ to extend it.
 import datetime
 import logging
 import os
+import time
 import warnings
 
 import psycopg2
@@ -40,15 +41,27 @@ postgres_params = {
 }
 
 
+POOL_CONNECT_TIMEOUT_SECONDS = 5
+# After a failed pool build the handler drops records for this long without
+# touching the network: each attempt runs under the handler lock, so every
+# log call in the process would wait for it.
+POOL_RETRY_COOLDOWN_SECONDS = 30
+
+
+class PoolUnavailable(psycopg2.OperationalError):
+    """The pool could not be built a moment ago; records are dropped meanwhile."""
+
+
 class PostgreSQLHandler(logging.Handler):
     """A log handler that writes log records to a PostgreSQL database."""
 
-    def __init__(self, connection_params):
+    def __init__(self, connection_params, clock=time.monotonic):
         """Initialize the handler with PostgreSQL connection parameters.
 
         Args:
             connection_params (dict): Connection parameters for PostgreSQL
                                      (dbname, user, password, host, port)
+            clock: Monotonic clock for the retry cooldown; tests pass their own.
         """
         super().__init__()
         self.connection_params = connection_params
@@ -57,6 +70,8 @@ class PostgreSQLHandler(logging.Handler):
         # worker. The pool is built on first use, once per process.
         self._connection_pool = None
         self._pool_pid = None
+        self._clock = clock
+        self._build_failed_at = None
 
     @property
     def connection_pool(self):
@@ -68,7 +83,7 @@ class PostgreSQLHandler(logging.Handler):
 
         Raises:
             psycopg2.OperationalError: If PostgreSQL cannot be reached. One
-                attempt per call; the next call tries again.
+                attempt, then ``PoolUnavailable`` until the cooldown is over.
         """
         # The handler's own lock, an RLock that logging re-creates in a forked
         # child: a lock of ours held by another thread at fork time would stay
@@ -79,17 +94,36 @@ class PostgreSQLHandler(logging.Handler):
                 if self._connection_pool is not None:
                     _INHERITED_POOLS.append(self._connection_pool)
                     self._connection_pool = None
-                self._connection_pool = self._connect()
+                self._build_pool()
                 self._pool_pid = os.getpid()
             return self._connection_pool
         finally:
             self.release()
+
+    def _build_pool(self):
+        """Build the pool, or fail fast while the last build's cooldown runs."""
+        if (
+            self._build_failed_at is not None
+            and self._clock() - self._build_failed_at < POOL_RETRY_COOLDOWN_SECONDS
+        ):
+            raise PoolUnavailable(
+                f"PostgreSQL unreachable, next attempt {POOL_RETRY_COOLDOWN_SECONDS}s "
+                "after the last failure; log record dropped"
+            )
+        try:
+            self._connection_pool = self._connect()
+        except psycopg2.OperationalError:
+            self._build_failed_at = self._clock()
+            raise
+        self._build_failed_at = None
 
     def _connect(self):
         """Open a connection pool: a single attempt."""
         # Add keepalive settings to prevent connections from going stale
         pool_params = {
             **self.connection_params,
+            # Without it a connect to a dead host waits for the OS TCP timeout.
+            "connect_timeout": POOL_CONNECT_TIMEOUT_SECONDS,
             "keepalives": 1,
             "keepalives_idle": 30,  # Start keepalive after 30s idle
             "keepalives_interval": 10,  # Send keepalive every 10s
