@@ -8,6 +8,7 @@ to extend it.
 
 import datetime
 import logging
+import os
 import time
 import warnings
 
@@ -46,10 +47,31 @@ class PostgreSQLHandler(logging.Handler):
         """
         super().__init__()
         self.connection_params = connection_params
-        # Create a connection pool for better performance
+        # No connection here: dictConfig builds this handler at import, and a
+        # preloading gunicorn master would hand its socket to every forked
+        # worker. The pool is built on first use, once per process.
+        self._connection_pool = None
+        self._pool_pid = None
+
+    @property
+    def connection_pool(self):
+        """The pool of the current process, built on first use.
+
+        After a fork the inherited pool shares its sockets with the parent, so a
+        process whose pid differs from the creator's drops the reference and
+        builds its own. The parent's connections are not closed from the child:
+        that would terminate the session the parent is still using.
+        """
+        if self._connection_pool is None or self._pool_pid != os.getpid():
+            self._connection_pool = self._connect()
+            self._pool_pid = os.getpid()
+        return self._connection_pool
+
+    def _connect(self):
+        """Open a connection pool, retrying while PostgreSQL starts up."""
         # Add keepalive settings to prevent connections from going stale
         pool_params = {
-            **connection_params,
+            **self.connection_params,
             "keepalives": 1,
             "keepalives_idle": 30,  # Start keepalive after 30s idle
             "keepalives_interval": 10,  # Send keepalive every 10s
@@ -59,12 +81,11 @@ class PostgreSQLHandler(logging.Handler):
         retry_delay_seconds = 2
         for attempt in range(1, max_retries + 1):
             try:
-                self.connection_pool = pool.SimpleConnectionPool(
+                return pool.SimpleConnectionPool(
                     1,
                     10,  # min and max connections
                     **pool_params,
                 )
-                break
             except psycopg2.OperationalError:
                 if attempt == max_retries:
                     raise
@@ -161,8 +182,9 @@ class PostgreSQLHandler(logging.Handler):
 
     def close(self):
         """Close all database connections when the handler is closed."""
-        if hasattr(self, "connection_pool") and self.connection_pool:
-            self.connection_pool.closeall()
+        # A pool inherited from a parent process is not ours to close.
+        if self._connection_pool is not None and self._pool_pid == os.getpid():
+            self._connection_pool.closeall()
         super().close()
 
 
