@@ -46,15 +46,32 @@ from cosmo_ecosystem.logs_table import format_logs_list
 from cosmo_ecosystem.db_manager import DbManager
 
 DEFAULT_EXCLUDED_MODULES = ["beat", "logs", "layout", "db_manager"]
+INITIAL_WINDOW = datetime.timedelta(hours=1)
+LIVE_WINDOW = datetime.timedelta(minutes=5)
+
+
+def default_window(now, span):
+    """Return the (start, end) datetimes of the window ending at ``now``.
+
+    The page shows one date and an hour:minute range on it, so the start stops at
+    the beginning of ``now``'s day instead of reaching into the day before.
+
+    Args:
+        now: End of the window.
+        span: Length of the window.
+    """
+    start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    return max(now - span, start_of_day), now
 
 
 def layout():
     """Dynamic layout that calculates current time on each page visit."""
     now = datetime.datetime.now()
-    start_hour = now.hour - 1 if now.hour > 0 else 23
-    start_minute = now.minute
-    end_hour = now.hour
-    end_minute = now.minute
+    start, end = default_window(now, INITIAL_WINDOW)
+    start_hour = start.hour
+    start_minute = start.minute
+    end_hour = end.hour
+    end_minute = end.minute
 
     # Populate module exclusion options from DB
     all_modules = DbManager.query_distinct_modules()
@@ -274,7 +291,9 @@ def _query_and_format(
             bad_input_group_class,
         )
 
-    if (start_hour, start_minute) >= (end_hour, end_minute):
+    # The end minute is inclusive (the query runs to its :59), so equal is a valid
+    # one-minute range; at 00:00 the live window is exactly that.
+    if (start_hour, start_minute) > (end_hour, end_minute):
         return (
             bad_values_log,
             disabled_pid,
@@ -373,10 +392,9 @@ def log_manager(
         if live:
             now = datetime.datetime.now()
             today = str(now.date())
-            live_start_hour = (
-                now.hour if now.minute >= 5 else (now.hour - 1 if now.hour > 0 else 23)
-            )
-            live_start_minute = (now.minute - 5) % 60
+            live_start, _ = default_window(now, LIVE_WINDOW)
+            live_start_hour = live_start.hour
+            live_start_minute = live_start.minute
 
             content, disabled_pid, error, cls = _query_and_format(
                 today,
