@@ -19,13 +19,20 @@ from cosmo_ecosystem.db_manager import DbManager, LogTable
 from cosmo_ecosystem.error_handling import JobCleanupFailed, JobDeletionFailed
 from cosmo_ecosystem.job_persistence import delete_job, delete_jobs
 from cosmo_ecosystem.job_retention import clean_up_jobs
-from cosmo_ecosystem import celery_app, job_retention, object_storage_manager
+from cosmo_ecosystem import (
+    celery_app,
+    job_log,
+    job_retention,
+    object_storage_manager,
+)
 from cosmo_ecosystem.object_storage_manager import (
     ObjectStorageError,
     delete_directory_from_storage,
     get_remote_files,
     save_files,
 )
+
+from job_row_helpers import drop_row
 
 FILE_NAME = "result.csv"
 CONTENT = "col_a,col_b\n1,2\n"
@@ -94,8 +101,7 @@ def _cleanup(job_id):
     if os.path.islink(_work_dir(job_id)):
         os.unlink(_work_dir(job_id))
     shutil.rmtree(_work_dir(job_id), ignore_errors=True)
-    if DbManager.check_existence(job_id):
-        DbManager.delete_job(job_id)
+    drop_row(job_id)
 
 
 def test_deleting_a_job_removes_its_row_local_directory_and_remote_prefix():
@@ -527,3 +533,56 @@ def test_deleting_several_jobs_tries_every_one_and_names_the_failures(tmp_path):
     finally:
         for job_id in job_ids:
             _cleanup(job_id)
+
+
+def _set_status(job_id, status):
+    """Write status to job_id's row, as a transition would have left it."""
+    DbManager.update_column(job_id, {"status": status})
+
+
+def test_cleanup_leaves_an_expired_running_job_alone():
+    """A job under a live run is never deleted, however old; a failed one is."""
+    running = "test_cleanup_expired_running"
+    failed = "test_cleanup_expired_failed"
+    for job_id, status in [(running, "RUNNING"), (failed, "FAILED")]:
+        _seed_row(job_id, days_old=DAYS_DELETE_SUBMITTED + 1, submitted=True)
+        _set_status(job_id, status)
+        _seed_remote(job_id)
+    job_log.append(running, "a live run's record")
+
+    try:
+        summary = clean_up_jobs()
+
+        assert DbManager.check_existence(running)
+        assert _remote_files(running) == {FILE_NAME}
+        assert "a live run's record" in job_log.read(running)
+        assert running not in summary.deleted_ids
+        assert running in summary.skipped_running_ids
+        assert not DbManager.check_existence(failed)
+        assert failed in summary.deleted_ids
+    finally:
+        job_log.clear(running)
+        for job_id in (running, failed):
+            drop_row(job_id)
+            _cleanup(job_id)
+
+
+def test_cleanup_purges_job_log_records_whose_job_is_gone_and_reports_the_count():
+    """Records a run wrote for a deleted job go; a live job's records stay."""
+    ghost = "test_cleanup_ghost_job_log"
+    live = "test_cleanup_live_job_log"
+    _seed_row(live)
+    job_log.append(live, "a live job's record")
+    job_log.append(ghost, "orphan 1")
+    job_log.append(ghost, "orphan 2")
+
+    try:
+        summary = clean_up_jobs()
+
+        assert job_log.read(ghost) == ""
+        assert "a live job's record" in job_log.read(live)
+        assert summary.purged_job_log_records >= 2
+    finally:
+        job_log.clear(ghost)
+        job_log.clear(live)
+        _cleanup(live)

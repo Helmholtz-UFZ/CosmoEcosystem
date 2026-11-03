@@ -21,7 +21,7 @@ from cosmo_ecosystem.job_persistence import update_columns
 from cosmo_ecosystem.object_storage_manager import get_remote_files
 
 from csv_profiler.pydantic_models import ProfileConfig
-from job_row_helpers import set_heartbeat
+from job_row_helpers import drop_row, set_heartbeat
 
 
 @pytest.fixture
@@ -39,6 +39,7 @@ def new_job(framework_job, request):
     job_id = f"test_fw_job_{name}"[:50]
     job = Job(new_job_id=job_id)
     yield job
+    drop_row(job_id)
     delete_job(job_id)
 
 
@@ -319,7 +320,7 @@ def test_saving_the_input_of_a_pending_job_writes_only_the_input(new_job):
 
 
 @pytest.mark.parametrize("status", ["RUNNING", "COMPLETED", "FAILED"])
-def test_saving_the_input_of_a_job_that_is_not_pending_changes_nothing(new_job, status):
+def test_input_of_a_started_job_is_kept(new_job, status):
     """A page loaded while PENDING cannot rewrite the input of a started job."""
     job = Job(job_id=new_job.job_id)
     update_columns(new_job.job_id, {"status": status})

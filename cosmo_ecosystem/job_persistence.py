@@ -12,6 +12,7 @@ deleting a job deletes it too.
 import logging
 import os
 import shutil
+from typing import NamedTuple
 
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -159,17 +160,29 @@ def delete_files(job_id: str, paths: list[str]) -> None:
             log.debug(f"{path} of job {job_id} is not in the local work dir.")
 
 
-def delete_job(job_id: str) -> None:
+def delete_job(job_id: str) -> bool:
     """Delete a job everywhere: its remote prefix, local work dir, job log and row.
+
+    A RUNNING job is refused and nothing of it is deleted (ADR 0005): the run
+    keeps its files, job log and row, and the caller shows "cancel or wait". The
+    check comes first, so nothing is deleted from under a live run; the row
+    delete is conditional too, so a job queued while the files were being
+    deleted keeps its row (its run then fails, and the job can be deleted again).
 
     Works from any pod, and whatever part is already gone counts as deleted.
     The row goes last because it is the retry handle: if a storage step
     raises, the row survives and the job is still listed for deleting again.
 
+    Returns:
+        True if the job is gone, False if it is RUNNING and was kept.
+
     Raises:
         ObjectStorageError: If the remote prefix could not be deleted.
     """
     log.info(f"Delete job {job_id}.")
+    if DbManager.is_running(job_id):
+        log.info(f"Job {job_id} is RUNNING and is not deleted.")
+        return False
     # A missing prefix is not an error here, which is what makes a job that
     # never uploaded anything deletable (see "Gotchas" in object_storage.md).
     delete_directory_from_storage(job_id)
@@ -179,32 +192,59 @@ def delete_job(job_id: str) -> None:
         log.debug(f"Job {job_id} has no local work dir on this pod.")
     job_log.clear(job_id)
     try:
-        DbManager.delete_job(job_id)
+        if not DbManager.delete_job(job_id):
+            log.warning(f"Job {job_id} was queued while it was deleted; its row stays.")
+            return False
     except JobNotFound:
         log.debug(f"Job {job_id} has no database row any more.")
+    return True
 
 
-def delete_jobs(job_ids: list[str]) -> None:
+class DeletionOutcome(NamedTuple):
+    """What deleting several jobs did, as job ids."""
+
+    deleted: list[str]
+    refused: list[str]
+    failed: list[str]
+
+
+def delete_each(job_ids: list[str]) -> DeletionOutcome:
+    """Delete each job; sort the ids into deleted, refused (RUNNING) and failed.
+
+    A failure is logged and does not stop the rest.
+    """
+    outcome = DeletionOutcome([], [], [])
+    for job_id in job_ids:
+        try:
+            deleted = delete_job(job_id)
+        except (ObjectStorageError, OSError, SQLAlchemyError) as error:
+            log.error(f"Could not delete job {job_id}: {error}", exc_info=True)
+            outcome.failed.append(job_id)
+            continue
+        (outcome.deleted if deleted else outcome.refused).append(job_id)
+    return outcome
+
+
+def delete_jobs(job_ids: list[str]) -> list[str]:
     """Delete every job in job_ids everywhere; one failure does not stop the rest.
 
-    The dashboard "Delete" on a multi-row selection.
+    The dashboard "Delete" on a multi-row selection. A RUNNING job is refused
+    (``delete_job``) and keeps everything; it is no failure.
+
+    Returns:
+        The ids that were refused because they are RUNNING, for the caller to
+        tell the user to cancel or wait.
 
     Raises:
         JobDeletionFailed: After all jobs were tried, naming those that could
             not be deleted. They keep their row and can be deleted again.
     """
-    failed_ids = delete_jobs_returning_failures(job_ids)
-    if failed_ids:
-        raise JobDeletionFailed(failed_ids)
+    outcome = delete_each(job_ids)
+    if outcome.failed:
+        raise JobDeletionFailed(outcome.failed)
+    return outcome.refused
 
 
 def delete_jobs_returning_failures(job_ids: list[str]) -> list[str]:
     """Delete each job, logging and skipping failures; return the failed ids."""
-    failed_ids = []
-    for job_id in job_ids:
-        try:
-            delete_job(job_id)
-        except (ObjectStorageError, OSError, SQLAlchemyError) as error:
-            log.error(f"Could not delete job {job_id}: {error}", exc_info=True)
-            failed_ids.append(job_id)
-    return failed_ids
+    return delete_each(job_ids).failed

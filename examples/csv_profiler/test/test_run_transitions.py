@@ -18,7 +18,7 @@ from cosmo_ecosystem.job_persistence import load_row
 
 # Wires DbManager.job_table exactly as the worker process has it.
 import csv_profiler.domain  # noqa: F401
-from job_row_helpers import row_and_log, set_heartbeat
+from job_row_helpers import drop_row, row_and_log, set_heartbeat
 
 CANCELLED_LINE = "cancelled"
 
@@ -57,7 +57,7 @@ def jobs():
     yield create
     for job_id in created:
         job_log.clear(job_id)
-        DbManager.delete_job(job_id)
+        drop_row(job_id)
 
 
 @pytest.mark.parametrize("status", ["PENDING", "FAILED"])

@@ -16,6 +16,7 @@ from sqlalchemy import (
     String,
     Text,
     create_engine,
+    delete,
     func,
     insert,
     update,
@@ -584,17 +585,36 @@ class DbManager:
         return job_columns
 
     @classmethod
-    def delete_job(cls, job_id):
-        """Delete a job entry from the database based on its job ID."""
+    def is_running(cls, job_id) -> bool:
+        """Return whether the job's row is RUNNING; a job without a row is not."""
+        job_table = cls._job_table()
+        with cls.session_scope() as session:
+            status = session.query(job_table.status).filter_by(job_id=job_id).scalar()
+        return status == "RUNNING"
+
+    @classmethod
+    def delete_job(cls, job_id) -> bool:
+        """Delete a job's row unless it is RUNNING; return whether it was deleted.
+
+        One conditional delete: a row under a live run (queued or claimed) stays,
+        whatever the caller checked before (ADR 0005).
+
+        Raises:
+            JobNotFound: If the job has no row.
+        """
         log.debug(f"Delete job: {job_id}")
         job_table = cls._job_table()
         with cls.session_scope() as session:
-            job = session.query(job_table).filter_by(job_id=job_id).first()
-
-            if job is None:
-                raise JobNotFound(job_id)
-
-            session.delete(job)
+            result = session.execute(
+                delete(job_table).where(
+                    job_table.job_id == job_id,
+                    job_table.status.is_distinct_from("RUNNING"),
+                )
+            )
+            deleted = result.rowcount == 1
+        if not deleted:
+            cls._raise_if_no_row(job_id)
+        return deleted
 
     @classmethod
     def list_job_ids(cls):

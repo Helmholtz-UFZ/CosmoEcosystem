@@ -28,7 +28,7 @@ from cosmo_ecosystem.object_storage_manager import (
 import csv_profiler.domain  # noqa: F401
 from csv_profiler.pydantic_models import ProfileConfig
 from csv_profiler.tasks.computation_tasks import profile
-from job_row_helpers import row_and_log, set_heartbeat
+from job_row_helpers import drop_row, row_and_log, set_heartbeat
 
 SAMPLE_CSV = os.path.join(os.path.dirname(__file__), "sample_mixed.csv")
 CSV_NAME = "sample_mixed.csv"
@@ -73,8 +73,7 @@ def _cleanup(job_id):
     delete_directory_from_storage(job_id)
     shutil.rmtree(local_dir(job_id), ignore_errors=True)
     job_log.clear(job_id)
-    if DbManager.check_existence(job_id):
-        DbManager.delete_job(job_id)
+    drop_row(job_id)
 
 
 def test_a_successful_run_ends_completed_with_its_outputs_in_the_remote_prefix():

@@ -1,0 +1,51 @@
+ 
+ -------------- lost-run-0@test v5.6.3 (recovery)
+--- ***** ----- 
+-- ******* ---- Linux-6.8.0-138-generic-x86_64-with-glibc2.35 2026-11-03 14:15:57
+- *** --- * --- 
+- ** ---------- [config]
+- ** ---------- .> app:         cosmo_ecosystem:0x7c73de00ea50
+- ** ---------- .> transport:   redis://localhost:56319/0
+- ** ---------- .> results:     redis://localhost:56319/0
+- *** --- * --- .> concurrency: 1 (prefork)
+-- ******* ---- .> task events: OFF (enable -E to monitor tasks in this worker)
+--- ***** ----- 
+ -------------- [queues]
+                .> lost_run_test    exchange=lost_run_test(direct) key=lost_run_test
+                
+
+[tasks]
+  . cosmo_ecosystem.tasks.maintenance_tasks.cleanup
+  . cosmo_ecosystem.tasks.sweep_tasks.sweep_lost_runs
+  . cosmo_ecosystem.tasks.test_tasks.long_running_test
+  . lost_run_domain.slow_run
+
+[2026-11-03 14:15:57,157: INFO/MainProcess] Connected to redis://localhost:56319/0
+[2026-11-03 14:15:57,160: INFO/MainProcess] mingle: searching for neighbors
+[2026-11-03 14:15:58,169: INFO/MainProcess] mingle: sync with 1 nodes
+[2026-11-03 14:15:58,171: INFO/MainProcess] mingle: sync complete
+[2026-11-03 14:15:58,185: INFO/MainProcess] lost-run-0@test ready.
+[2026-11-03 14:15:58,492: INFO/MainProcess] Task lost_run_domain.slow_run[87c06f75-b36d-4c69-a5f2-d7f6a62cce36] received
+[2026-11-03 14:15:58,544] [PID:1756879] DEBUG in job_log: Clear the job log of job test_lost_a_run_whose_child_was_killed_ends_failed.
+[2026-11-03 14:15:58,557] [PID:1756879] INFO in job_run: Start the job run of job test_lost_a_run_whose_child_was_killed_ends_failed.
+[2026-11-03 14:15:58,558] [PID:1756879] DEBUG in object_storage_manager: Downloading files from object storage for test_lost_a_run_whose_child_was_killed_ends_failed
+[2026-11-03 14:15:58,663] [PID:1756879] DEBUG in object_storage_manager: Object storage connection check passed
+[2026-11-03 14:15:58,732] [PID:1756879] DEBUG in object_storage_manager: Rclone sync result: 
+[2026-11-03 14:15:58,734] [PID:1756879] DEBUG in object_storage_manager: Downloaded 0 new files to local
+[2026-11-03 14:15:58,735] [PID:1756879] INFO in lost_run_domain: Job test_lost_a_run_whose_child_was_killed_ends_failed: second 0 of the slow run
+[2026-11-03 14:15:59,145: ERROR/MainProcess] Process 'ForkPoolWorker-1' pid:1756879 exited with 'signal 9 (SIGKILL)'
+[2026-11-03 14:15:59,160: ERROR/MainProcess] Task handler raised error: WorkerLostError('Worker exited prematurely: signal 9 (SIGKILL) Job: 0.')
+Traceback (most recent call last):
+  File "/home/trinkle/git/cosmo-ecosystem.wt/run-ownership/examples/csv_profiler/.venv/lib/python3.13/site-packages/billiard/pool.py", line 1265, in mark_as_worker_lost
+    raise WorkerLostError(
+    ...<2 lines>...
+    )
+billiard.einfo.ExceptionWithTraceback: 
+"""
+Traceback (most recent call last):
+  File "/home/trinkle/git/cosmo-ecosystem.wt/run-ownership/examples/csv_profiler/.venv/lib/python3.13/site-packages/billiard/pool.py", line 1265, in mark_as_worker_lost
+    raise WorkerLostError(
+    ...<2 lines>...
+    )
+billiard.exceptions.WorkerLostError: Worker exited prematurely: signal 9 (SIGKILL) Job: 0.
+"""

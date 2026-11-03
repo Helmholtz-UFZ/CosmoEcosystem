@@ -30,3 +30,15 @@ def row_and_log(job_id):
     """Return the job's status, heartbeat and job log: what a drop must keep."""
     row = load_row(job_id)
     return row["status"], row["heartbeat_at"], job_log.read(job_id)
+
+
+def drop_row(job_id):
+    """Delete job_id's row whatever its status: test cleanup, not a framework path.
+
+    ``DbManager.delete_job`` refuses a RUNNING row (ADR 0005), and tests leave
+    RUNNING rows behind on purpose.
+    """
+    with DbManager.session_scope() as session:
+        session.execute(
+            text("DELETE FROM jobs WHERE job_id = :job_id"), {"job_id": job_id}
+        )

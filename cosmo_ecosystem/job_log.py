@@ -21,7 +21,7 @@ import os
 import sys
 import threading
 
-from sqlalchemy import insert
+from sqlalchemy import delete, insert, select
 
 from cosmo_ecosystem.db_manager import DbManager, JobLogTable
 from cosmo_ecosystem.logger import ExcludeSubmodulesFilter
@@ -205,6 +205,23 @@ def clear(job_id: str) -> None:
         session.query(JobLogTable).filter(JobLogTable.job_id == job_id).delete(
             synchronize_session=False
         )
+
+
+def purge_orphaned() -> int:
+    """Delete every job log record whose job has no row; return how many went.
+
+    Records of a deleted job: a run that kept writing after its job was deleted
+    (before a RUNNING job could not be deleted), or a delete that cleared the job
+    log and lost a race with a late record. Run by the retention cleanup.
+    """
+    job_table = DbManager._job_table()
+    with DbManager.session_scope() as session:
+        result = session.execute(
+            delete(JobLogTable).where(
+                JobLogTable.job_id.not_in(select(job_table.job_id))
+            )
+        )
+        return result.rowcount
 
 
 def _asctime(timestamp: datetime.datetime) -> str:

@@ -1,0 +1,32 @@
+ 
+ -------------- lost-run-0@test v5.6.3 (recovery)
+--- ***** ----- 
+-- ******* ---- Linux-6.8.0-138-generic-x86_64-with-glibc2.35 2026-11-03 14:16:03
+- *** --- * --- 
+- ** ---------- [config]
+- ** ---------- .> app:         cosmo_ecosystem:0x7d2f7504aa50
+- ** ---------- .> transport:   redis://localhost:56319/0
+- ** ---------- .> results:     redis://localhost:56319/0
+- *** --- * --- .> concurrency: 1 (prefork)
+-- ******* ---- .> task events: OFF (enable -E to monitor tasks in this worker)
+--- ***** ----- 
+ -------------- [queues]
+                .> lost_run_test    exchange=lost_run_test(direct) key=lost_run_test
+                
+
+[tasks]
+  . cosmo_ecosystem.tasks.maintenance_tasks.cleanup
+  . cosmo_ecosystem.tasks.sweep_tasks.sweep_lost_runs
+  . cosmo_ecosystem.tasks.test_tasks.long_running_test
+  . lost_run_domain.slow_run
+
+[2026-11-03 14:16:03,553: INFO/MainProcess] Connected to redis://localhost:56319/0
+[2026-11-03 14:16:03,556: INFO/MainProcess] mingle: searching for neighbors
+[2026-11-03 14:16:04,563: INFO/MainProcess] mingle: sync with 1 nodes
+[2026-11-03 14:16:04,563: INFO/MainProcess] mingle: sync complete
+[2026-11-03 14:16:04,571: INFO/MainProcess] lost-run-0@test ready.
+[2026-11-03 14:16:04,899: INFO/MainProcess] Task lost_run_domain.slow_run[49df55f9-2d90-4e6d-8892-b6170396be95] received
+[2026-11-03 14:16:04,935] [PID:1757375] DEBUG in job_log: Clear the job log of job test_lost_a_redelivery_after_the_worker_died_is_dr.
+[2026-11-03 14:16:04,948] [PID:1757375] INFO in job_run: Start the job run of job test_lost_a_redelivery_after_the_worker_died_is_dr.
+[2026-11-03 14:16:04,949] [PID:1757375] DEBUG in object_storage_manager: Downloading files from object storage for test_lost_a_redelivery_after_the_worker_died_is_dr
+[2026-11-03 14:16:05,055] [PID:1757375] DEBUG in object_storage_manager: Object storage connection check passed

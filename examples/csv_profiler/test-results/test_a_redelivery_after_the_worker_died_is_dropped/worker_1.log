@@ -1,0 +1,30 @@
+ 
+ -------------- lost-run-1@test v5.6.3 (recovery)
+--- ***** ----- 
+-- ******* ---- Linux-6.8.0-138-generic-x86_64-with-glibc2.35 2026-11-03 14:16:12
+- *** --- * --- 
+- ** ---------- [config]
+- ** ---------- .> app:         cosmo_ecosystem:0x73a550fb2a50
+- ** ---------- .> transport:   redis://localhost:56319/0
+- ** ---------- .> results:     redis://localhost:56319/0
+- *** --- * --- .> concurrency: 1 (prefork)
+-- ******* ---- .> task events: OFF (enable -E to monitor tasks in this worker)
+--- ***** ----- 
+ -------------- [queues]
+                .> lost_run_test    exchange=lost_run_test(direct) key=lost_run_test
+                
+
+[tasks]
+  . cosmo_ecosystem.tasks.maintenance_tasks.cleanup
+  . cosmo_ecosystem.tasks.sweep_tasks.sweep_lost_runs
+  . cosmo_ecosystem.tasks.test_tasks.long_running_test
+  . lost_run_domain.slow_run
+
+[2026-11-03 14:16:12,183: INFO/MainProcess] Connected to redis://localhost:56319/0
+[2026-11-03 14:16:12,187: INFO/MainProcess] mingle: searching for neighbors
+[2026-11-03 14:16:13,198: INFO/MainProcess] mingle: sync with 1 nodes
+[2026-11-03 14:16:13,198: INFO/MainProcess] mingle: sync complete
+[2026-11-03 14:16:13,207: INFO/MainProcess] lost-run-1@test ready.
+[2026-11-03 14:16:13,209: INFO/MainProcess] Task lost_run_domain.slow_run[49df55f9-2d90-4e6d-8892-b6170396be95] received
+[2026-11-03 14:16:13,240] [PID:1757923] WARNING in job_run: Drop this delivery of job test_lost_a_redelivery_after_the_worker_died_is_dr: its row is not a queued run (already claimed, reset, cancelled or deleted).
+[2026-11-03 14:16:13,251] [PID:1757923] INFO in trace: Task lost_run_domain.slow_run[49df55f9-2d90-4e6d-8892-b6170396be95] succeeded in 0.04145943999901647s: None

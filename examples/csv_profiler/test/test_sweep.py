@@ -14,7 +14,7 @@ from cosmo_ecosystem.tasks.sweep_tasks import sweep_lost_runs
 
 # Wires DbManager.job_table exactly as the worker process has it.
 import csv_profiler.domain  # noqa: F401
-from job_row_helpers import set_heartbeat
+from job_row_helpers import drop_row, set_heartbeat
 
 LOST_RUN_LINE = "Worker lost: no heartbeat since"
 
@@ -48,7 +48,7 @@ def jobs():
     yield create
     for job_id in created:
         job_log.clear(job_id)
-        DbManager.delete_job(job_id)
+        drop_row(job_id)
 
 
 def test_the_sweep_fails_only_running_rows_whose_heartbeat_stopped(jobs):

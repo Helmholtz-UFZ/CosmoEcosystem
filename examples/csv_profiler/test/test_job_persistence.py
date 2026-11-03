@@ -11,7 +11,7 @@ import zipfile
 import dash
 import pytest
 
-from cosmo_ecosystem import job_retention, object_storage_manager
+from cosmo_ecosystem import job_log, job_retention, object_storage_manager
 from cosmo_ecosystem.config import (
     OBJECT_STORAGE_BUCKET,
     OBJECT_STORAGE_REMOTE_NAME,
@@ -41,6 +41,7 @@ from cosmo_ecosystem.object_storage_manager import (
 )
 
 from csv_profiler.pydantic_models import ProfileConfig
+from job_row_helpers import drop_row
 
 FILE_NAME = "result.csv"
 STALE = "stale\n"
@@ -112,8 +113,7 @@ def _cleanup(job_id):
     """Remove whatever a test left behind for job_id."""
     delete_directory_from_storage(job_id)
     shutil.rmtree(_dir(job_id), ignore_errors=True)
-    if DbManager.check_existence(job_id):
-        DbManager.delete_job(job_id)
+    drop_row(job_id)
 
 
 def test_loading_a_row_makes_no_rclone_call(rclone_calls):
@@ -610,3 +610,71 @@ def test_pull_file_of_a_file_the_remote_lacks_keeps_the_local_copy(rclone_calls)
         assert not os.path.exists(os.path.join(_dir(job_id), "never_existed.csv"))
     finally:
         _cleanup(job_id)
+
+
+def test_deleting_a_running_job_is_refused_and_deletes_nothing():
+    """A delete cannot pull the files, job log and row from under a live run."""
+    job_id = "test_persistence_delete_running"
+    _write(job_id, FILE_NAME, FRESH)
+    save(job_id, _row(job_id, status="RUNNING"))
+    job_log.append(job_id, "a live run's record")
+    before = load_row(job_id)
+
+    try:
+        assert delete_job(job_id) is False
+
+        assert load_row(job_id) == before
+        assert _remote_files(job_id) == {FILE_NAME}
+        assert os.path.exists(_dir(job_id))
+        assert "a live run's record" in job_log.read(job_id)
+    finally:
+        job_log.clear(job_id)
+        drop_row(job_id)
+        _cleanup(job_id)
+
+
+def test_deleting_a_job_that_is_not_running_returns_true():
+    """The caller learns the job is gone."""
+    job_id = "test_persistence_delete_returns_true"
+    _write(job_id, FILE_NAME, FRESH)
+    save(job_id, _row(job_id, status="COMPLETED"))
+
+    assert delete_job(job_id) is True
+
+    assert not DbManager.check_existence(job_id)
+
+
+def test_deleting_several_jobs_deletes_the_others_and_returns_the_refused_ids():
+    """Delete on a selection with a running job: the rest goes, the caller is told."""
+    running = "test_persistence_delete_many_running"
+    others = ["test_persistence_delete_many_a", "test_persistence_delete_many_b"]
+    for job_id, status in [
+        (running, "RUNNING"),
+        (others[0], "FAILED"),
+        (others[1], "PENDING"),
+    ]:
+        save(job_id, _row(job_id, status=status))
+
+    try:
+        refused = delete_jobs([others[0], running, others[1]])
+
+        assert refused == [running]
+        assert DbManager.check_existence(running)
+        assert not DbManager.check_existence(others[0])
+        assert not DbManager.check_existence(others[1])
+    finally:
+        drop_row(running)
+        _cleanup(running)
+
+
+def test_a_database_row_turned_running_during_a_delete_survives():
+    """The row delete is conditional itself, not only the check before the delete."""
+    job_id = "test_persistence_delete_row_conditional"
+    DbManager.add_entry(_row(job_id, status="RUNNING"))
+
+    try:
+        assert DbManager.delete_job(job_id) is False
+
+        assert DbManager.check_existence(job_id)
+    finally:
+        drop_row(job_id)
