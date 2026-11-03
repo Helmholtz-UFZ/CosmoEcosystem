@@ -29,5 +29,7 @@ right after revoking it, because a terminated worker writes nothing.
   ([ADR 0004](0004-lost-job-runs-are-swept-not-retried.md)). The job run no longer
   writes RUNNING itself; the submit queues the run (RUNNING, no heartbeat) and the
   run claims it.
-- A cancel racing a run that just finished can leave FAILED on a finished job, or
-  COMPLETED if the worker writes last; both are accepted.
+- A cancel is the transition `job_run.mark_cancelled` ([ADR 0005](0005-job-status-has-named-owners.md)):
+  it writes FAILED only to a RUNNING row, so it never overwrites a COMPLETED that
+  landed a moment earlier, and a cancelled run that is still alive writes no final
+  status over it.
