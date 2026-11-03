@@ -314,7 +314,6 @@ def submission_manager(
 
     # Handle button actions
     if SUBMIT_BUTTON_JOB_SUBMISSION_ID in triggered_ids:
-        job.delete_logs()
         job.submit()
     elif RESUBMIT_BUTTON_JOB_SUBMISSION_ID in triggered_ids:
         # Trigger confirmation modal

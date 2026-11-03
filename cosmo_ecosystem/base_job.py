@@ -47,8 +47,11 @@ class BaseJob(ABC):
         """Persist the job — its files and its database row."""
 
     @abstractmethod
-    def delete(self) -> None:
+    def delete(self) -> bool | None:
         """Remove the job from the database and from storage.
+
+        An implementation returns False when it refused because the job is
+        RUNNING (nothing deleted), so a caller can tell the user to cancel or wait.
 
         Implementations may take keyword arguments to narrow what is deleted;
         the contract only requires that ``job.delete()`` works.

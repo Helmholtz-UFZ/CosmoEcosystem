@@ -394,9 +394,14 @@ class Job(BaseJob):
         log.debug(f"Save job {self.job_id}")
         job_persistence.save(self.job_id, self._row())
 
-    def delete(self):
-        """Delete the job from the database, the local disk and storage."""
-        job_persistence.delete_job(self.job_id)
+    def delete(self) -> bool:
+        """Delete the job from the database, the local disk and storage.
+
+        Returns:
+            False if the job is RUNNING and nothing was deleted; the caller
+            shows "cancel or wait".
+        """
+        return job_persistence.delete_job(self.job_id)
 
     def submit(self) -> bool:
         """Submit job to Celery queue for background processing.
@@ -426,25 +431,32 @@ class Job(BaseJob):
         self.status = "RUNNING"
         self.submitted = True
 
+        # Everything after the guard is under the failure path: the row is a
+        # queued run now, and nothing recovers one that no message will ever
+        # claim (the sweep ignores queued rows; queue, reset, delete and the
+        # cleanup refuse RUNNING). Pull, save and enqueue each may raise, a
+        # storage error being routine; whatever they raise, FAILED is written
+        # while the row is still queued, and the error is re-raised.
+        #
         # Save BEFORE enqueuing: pull first so the dir exists and holds nothing
         # stale, then upload and write the row. A fast worker may claim the run
         # and write COMPLETED or FAILED before the handler returns; the row is
         # already RUNNING, and nothing is synced after the enqueue (ADR 0002).
-        # The save never writes the status (ADR 0005). A failure here leaves the
-        # queued run without a message, like one the broker loses (ADR 0004).
-        self.working_dir = job_persistence.work_dir(self.job_id)
-        job_persistence.save(self.job_id, self._row())
-
+        # The save never writes the status (ADR 0005).
+        #
         # A handler that raises is re-raised after FAILED is written, while a
         # handler that reports failure returns: the flag is a failure the app
         # foresaw and handled, an exception is not, and must reach the caller
         # (the global error handler) instead of vanishing behind a FAILED row.
         try:
+            self.working_dir = job_persistence.work_dir(self.job_id)
+            job_persistence.save(self.job_id, self._row())
             _celery_task_id, failed = self.submit_handler(self)
         except Exception:  # noqa: BLE001
             # Convention exception (CLAUDE.md: specific exceptions only): the
-            # handler is any app's code, and whatever it raises, the RUNNING
-            # written above must not outlive it. Re-raised below.
+            # pull, the save and the handler are storage, database and app
+            # code, and whatever they raise, the RUNNING written above must
+            # not outlive it. Re-raised below.
             self._fail_to_start()
             raise
         if failed:

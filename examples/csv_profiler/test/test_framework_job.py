@@ -9,7 +9,7 @@ import re
 
 import pytest
 
-from cosmo_ecosystem import job_log, job_run
+from cosmo_ecosystem import job_log, job_persistence, job_run
 from cosmo_ecosystem.constants import LOG_FILE_NAME
 from cosmo_ecosystem.config import OBJECT_STORAGE_BUCKET, OBJECT_STORAGE_REMOTE_NAME
 from cosmo_ecosystem.db_manager import DbManager
@@ -18,10 +18,10 @@ from cosmo_ecosystem.job import Job
 from cosmo_ecosystem.job_log import JobLogHandler
 from cosmo_ecosystem.job_persistence import delete_job, load_row, local_dir
 from cosmo_ecosystem.job_persistence import update_columns
-from cosmo_ecosystem.object_storage_manager import get_remote_files
+from cosmo_ecosystem.object_storage_manager import ObjectStorageError, get_remote_files
 
 from csv_profiler.pydantic_models import ProfileConfig
-from job_row_helpers import drop_row, set_heartbeat
+from job_row_helpers import drop_row, set_heartbeat, set_row_columns
 
 
 @pytest.fixture
@@ -344,3 +344,49 @@ def test_uploading_a_file_to_a_running_job_is_refused_and_keeps_its_files(new_jo
 
     assert load_row(new_job.job_id) == before
     assert "new.csv" not in _remote_names(new_job.job_id)
+
+
+def test_a_save_that_fails_after_the_guard_leaves_the_job_failed(
+    new_job, counted_handler, monkeypatch
+):
+    """A storage error between the guard and the enqueue does not strand a queued run."""
+
+    def save_fails(job_id, row):
+        raise ObjectStorageError("the bucket is unreachable")
+
+    monkeypatch.setattr(job_persistence, "save", save_fails)
+
+    with pytest.raises(ObjectStorageError):
+        new_job.submit()
+
+    assert load_row(new_job.job_id)["status"] == "FAILED"
+    assert counted_handler == []
+    assert f"Cannot start job {new_job.job_id}" in job_log.read(new_job.job_id)
+
+
+def test_a_work_dir_pull_that_fails_after_the_guard_leaves_the_job_failed(
+    new_job, counted_handler, monkeypatch
+):
+    """The same for the pull: every step after the guard is under the failure path."""
+
+    def pull_fails(job_id):
+        raise ObjectStorageError("the bucket is unreachable")
+
+    monkeypatch.setattr(job_persistence, "work_dir", pull_fails)
+
+    with pytest.raises(ObjectStorageError):
+        new_job.submit()
+
+    assert load_row(new_job.job_id)["status"] == "FAILED"
+
+
+def test_delete_returns_false_for_a_running_job_and_true_otherwise(new_job):
+    """Job.delete passes the refusal on, so the page can show its hint."""
+    job_run.mark_queued(new_job.job_id)
+    assert Job(job_id=new_job.job_id).delete() is False
+    assert DbManager.check_existence(new_job.job_id)
+
+    set_row_columns(new_job.job_id, status="FAILED")
+
+    assert Job(job_id=new_job.job_id).delete() is True
+    assert not DbManager.check_existence(new_job.job_id)
