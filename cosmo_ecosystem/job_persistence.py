@@ -161,17 +161,20 @@ def delete_files(job_id: str, paths: list[str]) -> None:
 
 
 def delete_job(job_id: str) -> bool:
-    """Delete a job everywhere: its remote prefix, local work dir, job log and row.
+    """Delete a job everywhere: its row, remote prefix, local work dir and job log.
 
-    A RUNNING job is refused and nothing of it is deleted (ADR 0005): the run
-    keeps its files, job log and row, and the caller shows "cancel or wait". The
-    check comes first, so nothing is deleted from under a live run; the row
-    delete is conditional too, so a job queued while the files were being
-    deleted keeps its row (its run then fails, and the job can be deleted again).
+    The row goes first, by one conditional delete that refuses a RUNNING row
+    (ADR 0005): a job under a live run, or queued meanwhile, keeps everything,
+    the caller gets False and shows "cancel or wait". Nothing else is touched
+    then, neither files nor job log.
+
+    Because the row goes first, a storage step that raises afterwards leaves its
+    leftovers (the remote prefix, the work dir, the job log) without a row: a
+    remote orphan, reported by ``job_retention.find_orphaned_prefixes``, and
+    job log records the cleanup purges. This is accepted; deleting the same id
+    again removes the rest, as a missing row counts as deleted.
 
     Works from any pod, and whatever part is already gone counts as deleted.
-    The row goes last because it is the retry handle: if a storage step
-    raises, the row survives and the job is still listed for deleting again.
 
     Returns:
         True if the job is gone, False if it is RUNNING and was kept.
@@ -180,9 +183,12 @@ def delete_job(job_id: str) -> bool:
         ObjectStorageError: If the remote prefix could not be deleted.
     """
     log.info(f"Delete job {job_id}.")
-    if DbManager.is_running(job_id):
-        log.info(f"Job {job_id} is RUNNING and is not deleted.")
-        return False
+    try:
+        if not DbManager.delete_job(job_id):
+            log.info(f"Job {job_id} is RUNNING and is not deleted.")
+            return False
+    except JobNotFound:
+        log.debug(f"Job {job_id} has no database row any more.")
     # A missing prefix is not an error here, which is what makes a job that
     # never uploaded anything deletable (see "Gotchas" in object_storage.md).
     delete_directory_from_storage(job_id)
@@ -191,12 +197,6 @@ def delete_job(job_id: str) -> bool:
     except FileNotFoundError:
         log.debug(f"Job {job_id} has no local work dir on this pod.")
     job_log.clear(job_id)
-    try:
-        if not DbManager.delete_job(job_id):
-            log.warning(f"Job {job_id} was queued while it was deleted; its row stays.")
-            return False
-    except JobNotFound:
-        log.debug(f"Job {job_id} has no database row any more.")
     return True
 
 

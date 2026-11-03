@@ -585,14 +585,6 @@ class DbManager:
         return job_columns
 
     @classmethod
-    def is_running(cls, job_id) -> bool:
-        """Return whether the job's row is RUNNING; a job without a row is not."""
-        job_table = cls._job_table()
-        with cls.session_scope() as session:
-            status = session.query(job_table.status).filter_by(job_id=job_id).scalar()
-        return status == "RUNNING"
-
-    @classmethod
     def delete_job(cls, job_id) -> bool:
         """Delete a job's row unless it is RUNNING; return whether it was deleted.
 

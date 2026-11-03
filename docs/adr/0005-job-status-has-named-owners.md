@@ -49,7 +49,9 @@ they are allowed from.
   run-owned columns. Input goes onto an existing row only through
   `job_persistence.update_input` (`Job.save_input`), `WHERE status = 'PENDING'`.
 - A RUNNING job cannot be deleted, reset or have its input changed; the cleanup
-  skips it and purges job log records without a job row.
+  skips it and purges job log records without a job row. A delete removes the row
+  first (one conditional delete), so a storage failure afterwards leaves a remote
+  orphan, reported by the cleanup, instead of a row to retry.
 - Known gaps: a web process dying between the guard and the enqueue leaves a queued
   run without a message; an overtaken run's job log records still reach the job's
   job log.

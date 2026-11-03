@@ -178,10 +178,13 @@ Every job class keeps these rules (the framework `Job` does):
   `job_persistence.update_input(job_id, columns)`** (framework `Job.save_input`):
   one update `WHERE status = 'PENDING'` of the input columns, returning whether it
   applied; it never writes `start_date`. Creating a job still inserts.
-- **A delete goes through `job_persistence.delete_job`/`delete_jobs`**: a RUNNING job
-  is refused (`False`, or the refused ids), nothing of it is deleted, and the page
-  tells the user to cancel or wait. The row delete is `DbManager.delete_job`, a
-  conditional delete returning a bool. The retention cleanup skips RUNNING rows and
+- **A delete goes through `job_persistence.delete_job`/`delete_jobs`**: the row goes
+  first, by `DbManager.delete_job`, one conditional delete returning a bool. A
+  RUNNING job is refused (`False`, or the refused ids), nothing of it is deleted
+  (no files, no job log), and the page tells the user to cancel or wait. The
+  remote prefix, work dir and job log follow; a storage failure after the row delete
+  leaves a remote orphan (reported by `job_retention.find_orphaned_prefixes`)
+  instead of a row to retry, which is accepted. The retention cleanup skips RUNNING rows and
   purges `job_logs` records without a job row.
 - **A failed enqueue writes FAILED through `job_run.mark_start_failed`**, which only
   fails a row that is still a queued run.

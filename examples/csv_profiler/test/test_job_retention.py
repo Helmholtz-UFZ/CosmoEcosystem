@@ -178,8 +178,11 @@ def test_deleting_a_job_that_never_uploaded_anything_succeeds():
         _cleanup(job_id)
 
 
-def test_a_failed_remote_deletion_keeps_the_row_for_the_next_run(monkeypatch):
-    """The row is the retry handle: it must outlive a failed S3 deletion.
+def test_a_failed_remote_deletion_raises_and_leaves_only_files_behind(monkeypatch):
+    """The row goes first (ADR 0005): a failed S3 deletion leaves an orphan, not a job.
+
+    The leftovers are reported by the orphan report and removed by deleting the
+    same id again, which tolerates the missing row.
 
     A bucket that does not exist makes rclone fail for real (exit 3), the
     same way an unreachable store does after the retries.
@@ -195,8 +198,12 @@ def test_a_failed_remote_deletion_keeps_the_row_for_the_next_run(monkeypatch):
         with pytest.raises(ObjectStorageError):
             delete_job(job_id)
 
-        assert DbManager.check_existence(job_id)
+        assert not DbManager.check_existence(job_id)
         assert os.path.exists(_work_dir(job_id))
+
+        monkeypatch.undo()
+        assert delete_job(job_id) is True
+        assert not os.path.exists(_work_dir(job_id))
     finally:
         # Restore the real bucket first, so the cleanup reaches the seeded job.
         monkeypatch.undo()
@@ -323,7 +330,7 @@ def test_one_failing_job_does_not_stop_the_cleanup_but_fails_the_run(tmp_path):
             clean_up_jobs()
 
         assert raised.value.job_ids == [failing_id]
-        assert DbManager.check_existence(failing_id)
+        assert not DbManager.check_existence(failing_id)
         assert not DbManager.check_existence(other_id)
         assert _remote_files(other_id) == set()
     finally:
@@ -526,7 +533,7 @@ def test_deleting_several_jobs_tries_every_one_and_names_the_failures(tmp_path):
             delete_jobs(job_ids)
 
         assert raised.value.job_ids == [failing_id]
-        assert DbManager.check_existence(failing_id)
+        assert not DbManager.check_existence(failing_id)
         for job_id in (first_id, last_id):
             assert not DbManager.check_existence(job_id)
             assert _remote_files(job_id) == set()
