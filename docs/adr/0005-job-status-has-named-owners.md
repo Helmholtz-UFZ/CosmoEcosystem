@@ -57,4 +57,8 @@ they are allowed from.
   still deletes files and job log records the new run is about to use (the run fails
   or starts with an empty job log; the user resets again). A web process dying
   between the guard and the enqueue leaves a queued run without a message. An
-  overtaken run's job log records still reach the job's job log.
+  overtaken run's job log records still reach the job's job log. A storage failure
+  in a delete, after its row went, leaves a remote orphan the cleanup reports. A
+  user-chosen job id re-created right after its row delete can lose files to the old
+  delete's removal of the remote prefix, work dir and job log (random ids are not
+  affected).

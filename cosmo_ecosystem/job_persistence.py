@@ -237,7 +237,9 @@ def delete_jobs(job_ids: list[str]) -> list[str]:
 
     Raises:
         JobDeletionFailed: After all jobs were tried, naming those that could
-            not be deleted. They keep their row and can be deleted again.
+            not be deleted completely. Their rows are gone (the row goes first);
+            their remote prefix may be left as an orphan, which the cleanup's
+            orphan report names.
     """
     outcome = delete_each(job_ids)
     if outcome.failed:
