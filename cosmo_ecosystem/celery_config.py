@@ -6,6 +6,8 @@ queues and the beat schedule are not settings: ``cosmo_ecosystem.celery_app``
 derives them from the task specs.
 """
 
+from urllib.parse import quote
+
 from cosmo_ecosystem.config import REDIS_DB, REDIS_HOST, REDIS_PASSWORD, REDIS_PORT
 
 
@@ -23,7 +25,8 @@ class BaseCeleryConfig:
     """Base Celery configuration class (framework tasks only)."""
 
     # Build Redis URL with optional password
-    _redis_auth = f":{REDIS_PASSWORD}@" if REDIS_PASSWORD else ""
+    # The password goes into a URL, so characters like @ / : # % must be escaped.
+    _redis_auth = f":{quote(REDIS_PASSWORD, safe='')}@" if REDIS_PASSWORD else ""
     _redis_port = _get_redis_port()
     _redis_url = f"redis://{_redis_auth}{REDIS_HOST}:{_redis_port}/{REDIS_DB}"
 
@@ -34,17 +37,17 @@ class BaseCeleryConfig:
 
     # Socket timeouts for Redis operations — broker_connection_timeout only covers
     # TCP connect. These cover actual Redis commands (PUBLISH, SET, SUBSCRIBE, …).
-    # Without them, a frozen Redis pod blocks all Celery calls forever.
+    # Without them, a frozen Redis pod blocks all Celery calls forever. The broker
+    # (kombu) takes them as transport options; the Redis result backend ignores
+    # result_backend_transport_options for them and reads redis_socket_* instead.
     #
     # No visibility_timeout here: Redis's default (1 h) is harmless. A message
     # unacked that long is redelivered, whether its run died with the pod or is
     # still computing, and the redelivery loses the job run's claim and is
     # dropped; a dead run is ended by the sweep instead (ADR 0004).
     broker_transport_options = {"socket_timeout": 5, "socket_connect_timeout": 5}
-    result_backend_transport_options = {
-        "socket_timeout": 5,
-        "socket_connect_timeout": 5,
-    }
+    redis_socket_timeout = 5
+    redis_socket_connect_timeout = 5
 
     # Result backend - Redis
     result_backend = _redis_url
