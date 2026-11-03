@@ -53,32 +53,36 @@ class JobNotFound(Exception):
 class JobCleanupFailed(Exception):
     """Raised after a cleanup run in which some expired jobs could not be deleted.
 
-    The run has already deleted every other expired job; the failed ones keep
-    their row, so the next run retries them.
+    The run has already deleted every other expired job. The failed ones have no
+    row any more (the row is deleted first); their remote prefix or work dir may
+    be left behind, an orphan the orphan report names.
     """
 
     def __init__(self, job_ids):
         """Add the failed job ids as attribute and format error message."""
         self.job_ids = job_ids
         super().__init__(
-            f"Could not delete the jobs {', '.join(job_ids)}. They are kept and "
-            "the next cleanup tries again."
+            f"Could not delete all files of the jobs {', '.join(job_ids)}. The "
+            "jobs are gone, but their files may be left behind as orphans; the "
+            "orphan report lists them."
         )
 
 
 class JobDeletionFailed(Exception):
     """Raised after deleting several jobs, when some of them could not be deleted.
 
-    Every other job was deleted; the failed ones keep their row and can be
-    deleted again.
+    Every other job was deleted. The failed ones have no row any more (the row
+    is deleted first), but their remote prefix or work dir may be left behind, an
+    orphan the cleanup's orphan report names.
     """
 
     def __init__(self, job_ids):
         """Add the failed job ids as attribute and format error message."""
         self.job_ids = job_ids
         super().__init__(
-            f"Could not delete the jobs {', '.join(job_ids)}. They are kept; "
-            "try deleting them again."
+            f"Could not delete all files of the jobs {', '.join(job_ids)}. The "
+            "jobs are gone, but their files may be left behind as orphans; the "
+            "orphan report lists them."
         )
 
 

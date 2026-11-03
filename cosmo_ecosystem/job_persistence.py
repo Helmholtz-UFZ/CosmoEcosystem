@@ -12,6 +12,7 @@ deleting a job deletes it too.
 import logging
 import os
 import shutil
+from typing import NamedTuple
 
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -52,6 +53,24 @@ def update_columns(job_id: str, columns: dict) -> None:
         JobNotFound: If the job has no row.
     """
     DbManager.update_column(job_id, columns)
+
+
+def update_input(job_id: str, columns: dict) -> bool:
+    """Write only the given input columns of an existing job's row, while PENDING.
+
+    The way input is written onto an existing row (ADR 0005): one conditional
+    update, ``WHERE status = 'PENDING'``, so a job that started, finished or was
+    reset meanwhile keeps its input. No rclone call. Never writes ``start_date``
+    or the run-owned columns (``ValueError``). Creating a new job still inserts,
+    through ``save``.
+
+    Returns:
+        Whether the row was PENDING and the columns were written.
+
+    Raises:
+        JobNotFound: If the job has no row.
+    """
+    return DbManager.update_input(job_id, columns)
 
 
 def work_dir(job_id: str) -> str:
@@ -141,17 +160,35 @@ def delete_files(job_id: str, paths: list[str]) -> None:
             log.debug(f"{path} of job {job_id} is not in the local work dir.")
 
 
-def delete_job(job_id: str) -> None:
-    """Delete a job everywhere: its remote prefix, local work dir, job log and row.
+def delete_job(job_id: str) -> bool:
+    """Delete a job everywhere: its row, remote prefix, local work dir and job log.
+
+    The row goes first, by one conditional delete that refuses a RUNNING row
+    (ADR 0005): a job under a live run, or queued meanwhile, keeps everything,
+    the caller gets False and shows "cancel or wait". Nothing else is touched
+    then, neither files nor job log.
+
+    Because the row goes first, a storage step that raises afterwards leaves its
+    leftovers (the remote prefix, the work dir, the job log) without a row: a
+    remote orphan, reported by ``job_retention.find_orphaned_prefixes``, and
+    job log records the cleanup purges. This is accepted; deleting the same id
+    again removes the rest, as a missing row counts as deleted.
 
     Works from any pod, and whatever part is already gone counts as deleted.
-    The row goes last because it is the retry handle: if a storage step
-    raises, the row survives and the job is still listed for deleting again.
+
+    Returns:
+        True if the job is gone, False if it is RUNNING and was kept.
 
     Raises:
         ObjectStorageError: If the remote prefix could not be deleted.
     """
     log.info(f"Delete job {job_id}.")
+    try:
+        if not DbManager.delete_job(job_id):
+            log.info(f"Job {job_id} is RUNNING and is not deleted.")
+            return False
+    except JobNotFound:
+        log.debug(f"Job {job_id} has no database row any more.")
     # A missing prefix is not an error here, which is what makes a job that
     # never uploaded anything deletable (see "Gotchas" in object_storage.md).
     delete_directory_from_storage(job_id)
@@ -160,33 +197,56 @@ def delete_job(job_id: str) -> None:
     except FileNotFoundError:
         log.debug(f"Job {job_id} has no local work dir on this pod.")
     job_log.clear(job_id)
-    try:
-        DbManager.delete_job(job_id)
-    except JobNotFound:
-        log.debug(f"Job {job_id} has no database row any more.")
+    return True
 
 
-def delete_jobs(job_ids: list[str]) -> None:
+class DeletionOutcome(NamedTuple):
+    """What deleting several jobs did, as job ids."""
+
+    deleted: list[str]
+    refused: list[str]
+    failed: list[str]
+
+
+def delete_each(job_ids: list[str]) -> DeletionOutcome:
+    """Delete each job; sort the ids into deleted, refused (RUNNING) and failed.
+
+    A failure is logged and does not stop the rest.
+    """
+    outcome = DeletionOutcome([], [], [])
+    for job_id in job_ids:
+        try:
+            deleted = delete_job(job_id)
+        except (ObjectStorageError, OSError, SQLAlchemyError) as error:
+            log.error(f"Could not delete job {job_id}: {error}", exc_info=True)
+            outcome.failed.append(job_id)
+            continue
+        (outcome.deleted if deleted else outcome.refused).append(job_id)
+    return outcome
+
+
+def delete_jobs(job_ids: list[str]) -> list[str]:
     """Delete every job in job_ids everywhere; one failure does not stop the rest.
 
-    The dashboard "Delete" on a multi-row selection.
+    The dashboard "Delete" on a multi-row selection. A RUNNING job is refused
+    (``delete_job``) and keeps everything; it is no failure.
+
+    Returns:
+        The ids that were refused because they are RUNNING, for the caller to
+        tell the user to cancel or wait.
 
     Raises:
         JobDeletionFailed: After all jobs were tried, naming those that could
-            not be deleted. They keep their row and can be deleted again.
+            not be deleted completely. Their rows are gone (the row goes first);
+            their remote prefix may be left as an orphan, which the cleanup's
+            orphan report names.
     """
-    failed_ids = delete_jobs_returning_failures(job_ids)
-    if failed_ids:
-        raise JobDeletionFailed(failed_ids)
+    outcome = delete_each(job_ids)
+    if outcome.failed:
+        raise JobDeletionFailed(outcome.failed)
+    return outcome.refused
 
 
 def delete_jobs_returning_failures(job_ids: list[str]) -> list[str]:
     """Delete each job, logging and skipping failures; return the failed ids."""
-    failed_ids = []
-    for job_id in job_ids:
-        try:
-            delete_job(job_id)
-        except (ObjectStorageError, OSError, SQLAlchemyError) as error:
-            log.error(f"Could not delete job {job_id}: {error}", exc_info=True)
-            failed_ids.append(job_id)
-    return failed_ids
+    return delete_each(job_ids).failed

@@ -19,7 +19,7 @@ from cosmo_ecosystem.error_handling import (
     InvalidJobID,
     JobNotFound,
 )
-from cosmo_ecosystem.job import Job
+from cosmo_ecosystem.job import NOT_PENDING_MESSAGE, Job
 from cosmo_ecosystem.layouts import (
     job_not_found_layout,
     landing_page_layout_column,
@@ -286,6 +286,9 @@ def update_feedback(form_valid, upload_data):
         **form_factory.produce_callback_outputs(),
         "form_valid": Output(FORM_VALID_STORE_INPUT_ID, "data"),
         "redirect": Output(URL_LOCATION_SHARED_ID, "pathname"),
+        "feedback": Output(
+            UPLOAD_FEEDBACK_DIV_INPUT_ID, "children", allow_duplicate=True
+        ),
     },
     inputs={
         **form_factory.produce_callback_inputs(),
@@ -308,6 +311,7 @@ def check_input(**inputs):
     valid, output_dict = form_factory.validate_callback(inputs)
     output_dict["form_valid"] = valid
     output_dict["redirect"] = dash.no_update
+    output_dict["feedback"] = dash.no_update
 
     if CHECK_INPUT_BUTTON_INPUT_ID in triggered_ids and valid:
         job_id = inputs["job_id"]
@@ -315,15 +319,20 @@ def check_input(**inputs):
         model.job_id = job_id
         model.upload_file_name = inputs["uploaded_file_name"]["file_name"]
         job = Job(job_id=job_id)
-        # save() uploads the whole work dir: start from the remote state.
+        # save_input() uploads the whole work dir: start from the remote state.
         job_persistence.work_dir(job_id)
         job.model = model
-        job.dump_parameters()
-        job.save()
-        log.info(f"Input validated for job {job_id}")
-
-        submission_base = dash.page_registry["pages.job_submission"]["path_template"]
-        output_dict["redirect"] = submission_base.replace("<job_id>", str(job_id))
+        if job.save_input():
+            log.info(f"Input validated for job {job_id}")
+            submission_base = dash.page_registry["pages.job_submission"][
+                "path_template"
+            ]
+            output_dict["redirect"] = submission_base.replace("<job_id>", str(job_id))
+        else:
+            log.info(f"Input of job {job_id} not saved: the job is not PENDING.")
+            output_dict["feedback"] = dbc.Alert(
+                NOT_PENDING_MESSAGE, color="warning", className="mb-0"
+            )
 
     return output_dict
 

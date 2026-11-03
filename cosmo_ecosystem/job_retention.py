@@ -17,7 +17,7 @@ from cosmo_ecosystem.constants import DAYS_DELETE_NOT_SUBMITTED, DAYS_DELETE_SUB
 from cosmo_ecosystem.db_manager import DbManager
 from cosmo_ecosystem.domain import load_domain
 from cosmo_ecosystem.error_handling import DomainNotConfigured, JobCleanupFailed
-from cosmo_ecosystem import job_persistence
+from cosmo_ecosystem import job_log, job_persistence
 from cosmo_ecosystem.object_storage_manager import (
     bucket_exists,
     list_top_level_prefixes,
@@ -39,6 +39,9 @@ class CleanupSummary:
     deleted_ids: list[str] = field(default_factory=list)
     kept_ids: list[str] = field(default_factory=list)
     failed_ids: list[str] = field(default_factory=list)
+    # Expired but RUNNING: kept, a lost run is swept to FAILED and cleaned then.
+    skipped_running_ids: list[str] = field(default_factory=list)
+    purged_job_log_records: int = 0
     removed_local_dirs: list[str] = field(default_factory=list)
 
 
@@ -81,7 +84,10 @@ def clean_up_jobs(
 ) -> CleanupSummary:
     """Delete every expired job everywhere and report what was done.
 
-    A job that fails to delete is logged and skipped so the others still go.
+    A job that fails to delete is logged and skipped so the others still go. A
+    RUNNING job is never deleted, however old: it is skipped (a lost run turns
+    FAILED through the sweep within about 15 minutes and is cleaned normally).
+    Job log records whose job has no row are purged and counted.
 
     Raises:
         JobCleanupFailed: After the run, if any expired job could not be deleted.
@@ -98,13 +104,18 @@ def clean_up_jobs(
         )
         if remaining > 0:
             summary.kept_ids.append(job_id)
+        elif job_info["status"] == "RUNNING":
+            summary.skipped_running_ids.append(job_id)
         else:
             expired_ids.append(job_id)
 
-    summary.failed_ids = job_persistence.delete_jobs_returning_failures(expired_ids)
-    summary.deleted_ids = [
-        job_id for job_id in expired_ids if job_id not in summary.failed_ids
-    ]
+    outcome = job_persistence.delete_each(expired_ids)
+    summary.failed_ids = outcome.failed
+    summary.deleted_ids = outcome.deleted
+    # Queued between the listing and the delete: refused, and skipped like the rest.
+    summary.skipped_running_ids.extend(outcome.refused)
+
+    summary.purged_job_log_records = job_log.purge_orphaned()
 
     summary.removed_local_dirs = _remove_orphaned_local_dirs()
 
@@ -114,6 +125,8 @@ def clean_up_jobs(
         f"Cleanup done: {len(summary.deleted_ids)} deleted with their remote "
         "prefixes, "
         f"{len(summary.kept_ids)} kept, {len(summary.failed_ids)} failed, "
+        f"{len(summary.skipped_running_ids)} running and skipped, "
+        f"{summary.purged_job_log_records} orphaned job log records purged, "
         f"{len(summary.removed_local_dirs)} orphaned local dirs removed."
     )
     if summary.failed_ids:

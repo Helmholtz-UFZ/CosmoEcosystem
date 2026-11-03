@@ -105,6 +105,9 @@ DUMMY_STORE_JOB_MANAGEMENT_ID = "dummy-store-job-management-id"
 # --- Tables ---
 JOBS_TABLE_JOB_MANAGEMENT_ID = "jobs-table-job-management-id"
 
+# --- Divs ---
+HINT_DIV_JOB_MANAGEMENT_ID = "hint-div-job-management-id"
+
 # =============================================================================
 # LOGS
 # =============================================================================

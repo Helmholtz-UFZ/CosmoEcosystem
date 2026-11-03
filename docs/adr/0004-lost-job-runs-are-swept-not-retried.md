@@ -33,8 +33,9 @@ default because a redelivery can no longer start a second computation.
 
 - `JobColumns` gains `heartbeat_at`; every app's `jobs` table must have it before the
   app deploys the framework version that maps it.
-- Queueing a run goes through `job_run.mark_queued`; an app with its own job class
-  that writes RUNNING itself breaks the claim, and its run is dropped and then swept.
+- Queueing a run goes through `job_run.mark_queued` (the submit guard, ADR 0005); an
+  app with its own job class that writes RUNNING itself breaks the claim, and its
+  run is dropped and then swept.
 - A deploy that kills a worker pod mid-run fails those runs; users reset them.
 - `job_run.run` returns `None` for a dropped delivery (no named sentinel); apps skip
   their post-run work.
@@ -45,12 +46,13 @@ default because a redelivery can no longer start a second computation.
 - A redelivery after a pod death comes when a worker starts or, while one runs,
   about every 100 s: kombu restores unacked messages older than
   `visibility_timeout` at worker start and on every tenth 10 s cycle.
-- A save from a job object loaded while RUNNING can write RUNNING over a swept
-  FAILED. No run starts (the heartbeat stays stale), and the next sweep fails it
-  again with a second job-log line. Follow-up: `.scratch/stuck-running/issues/07`.
+- A save from a job object loaded while RUNNING could write RUNNING over a swept
+  FAILED. Since [ADR 0005](0005-job-status-has-named-owners.md) a save never writes
+  the status.
 - A stale message after a reset is dropped only until the job is submitted again.
   After that it may win the claim instead of the new message; exactly one run still
-  computes the current input.
+  computes the current input. The run that lost the race to the claim is overtaken
+  (ADR 0005) and writes nothing.
 - A lost job run sends no end mail.
 - Known gap: a message the broker loses leaves its row RUNNING with no heartbeat, and
   the sweep never touches it.

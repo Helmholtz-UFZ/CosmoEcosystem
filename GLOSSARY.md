@@ -39,10 +39,19 @@ zero or more runs; resetting or changing its input and submitting again starts a
 new one.
 _Avoid_: Execution, attempt, task
 
+**Queued run**:
+A job run that has been submitted but not yet picked up by a worker.
+_Avoid_: Pending run (PENDING is the status of a job not submitted), waiting job
+
 **Job reset**:
 Returning a job to PENDING, discarding its results and job log but keeping its
 input. Submitting it again starts a new job run.
 _Avoid_: Restart, rerun
+
+**Job cancel**:
+Ending a job's current run on the user's request; the run ends FAILED and its job
+log says it was cancelled. A finished run cannot be cancelled.
+_Avoid_: Abort, kill, stop (the worker may still be killing the process)
 
 **Job log**:
 The log records written during a job's latest job run, kept with the job and

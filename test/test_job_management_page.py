@@ -126,7 +126,12 @@ def test_batched_delete_and_refresh_still_deletes(job_management, monkeypatch):
     would skip the delete the user asked for.
     """
     deleted = []
-    monkeypatch.setattr(job_management, "delete_jobs", deleted.extend)
+
+    def delete_jobs(job_ids):
+        deleted.extend(job_ids)
+        return []
+
+    monkeypatch.setattr(job_management, "delete_jobs", delete_jobs)
     monkeypatch.setattr(job_management.DbManager, "list_jobs", lambda: {})
     context_value.set(
         AttributeDict(
@@ -142,7 +147,35 @@ def test_batched_delete_and_refresh_still_deletes(job_management, monkeypatch):
     )
 
     assert deleted == ["abc123"]
-    assert result == ([], [], False)
+    assert result == ([], [], None, False)
+
+
+def test_delete_tells_the_user_to_cancel_or_wait_for_a_running_job(
+    job_management, monkeypatch
+):
+    """A refused delete is no error: the hint names the jobs that were kept."""
+    monkeypatch.setattr(job_management, "delete_jobs", lambda job_ids: ["abc123"])
+    monkeypatch.setattr(job_management.DbManager, "list_jobs", lambda: {})
+    context_value.set(
+        AttributeDict(
+            triggered_inputs=[
+                {"prop_id": f"{DELETE_BUTTON_JOB_MANAGEMENT_ID}.n_clicks", "value": 1},
+            ]
+        )
+    )
+
+    rows, selected, hint, overlay = job_management.job_management_dashboard(
+        1,
+        None,
+        None,
+        None,
+        [{"job_id": "[abc123](/x/abc123)"}, {"job_id": "[def456](/x/def456)"}],
+    )
+
+    assert "abc123" in hint.children
+    assert "cancel or wait" in hint.children
+    assert "def456" not in hint.children
+    assert (rows, selected, overlay) == ([], [], False)
 
 
 def test_status_colours_are_fixed_hex_values(job_management):

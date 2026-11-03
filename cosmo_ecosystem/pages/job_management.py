@@ -21,6 +21,7 @@ from cosmo_ecosystem.constants import (
     CLEAN_BUTTON_JOB_MANAGEMENT_ID,
     DELETE_BUTTON_JOB_MANAGEMENT_ID,
     DUMMY_STORE_JOB_MANAGEMENT_ID,
+    HINT_DIV_JOB_MANAGEMENT_ID,
     JOBS_TABLE_JOB_MANAGEMENT_ID,
     LOADING_OVERLAY_MODAL_SHARED_ID,
     REFRESH_BUTTON_JOB_MANAGEMENT_ID,
@@ -127,6 +128,10 @@ layout = page_container_column_layout(
             className="m-2",
         ),
         dbc.Row(
+            dbc.Col(html.Div(id=HINT_DIV_JOB_MANAGEMENT_ID)),
+            className="m-2",
+        ),
+        dbc.Row(
             dbc.Col(
                 table,
             ),
@@ -187,6 +192,7 @@ dash.clientside_callback(
 @callback(
     Output(JOBS_TABLE_JOB_MANAGEMENT_ID, "rowData"),
     Output(JOBS_TABLE_JOB_MANAGEMENT_ID, "selectedRows"),
+    Output(HINT_DIV_JOB_MANAGEMENT_ID, "children"),
     Output(LOADING_OVERLAY_MODAL_SHARED_ID, "is_open", allow_duplicate=True),
     Input(DELETE_BUTTON_JOB_MANAGEMENT_ID, "n_clicks"),
     Input(CLEAN_BUTTON_JOB_MANAGEMENT_ID, "n_clicks"),
@@ -208,11 +214,19 @@ def job_management_dashboard(
         if t["value"] is not None
     }
 
+    hint = None
     if DELETE_BUTTON_JOB_MANAGEMENT_ID in triggered_ids and selected_rows:
         log.info("Deleting selected jobs")
-        delete_jobs(
+        refused = delete_jobs(
             [re.findall(r"\[(.*?)\]", row["job_id"])[0] for row in selected_rows]
         )
+        if refused:
+            hint = dbc.Alert(
+                f"Not deleted, the job is running: {', '.join(refused)}. "
+                "Please cancel or wait.",
+                color="warning",
+                dismissable=True,
+            )
     if CLEAN_BUTTON_JOB_MANAGEMENT_ID in triggered_ids:
         log.info("Cleaning unsubmitted jobs")
         clean_up_jobs(days_delete_not_submitted=0)
@@ -223,8 +237,8 @@ def job_management_dashboard(
         DELETE_BUTTON_JOB_MANAGEMENT_ID,
         CLEAN_BUTTON_JOB_MANAGEMENT_ID,
     }:
-        return rows, [], False
-    return rows, dash.no_update, False
+        return rows, [], hint, False
+    return rows, dash.no_update, dash.no_update, False
 
 
 # Registered with an explicit "pages.*" key + layout so an app can import this

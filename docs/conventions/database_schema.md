@@ -54,6 +54,7 @@ class JobColumns:
     status = Column(String)
     version = Column(String)
     heartbeat_at = Column(DateTime(timezone=True))
+    run_id = Column(UUID(as_uuid=True))
 ```
 
 Each app declares its own concrete class from it, on the framework `Base`,
@@ -112,6 +113,14 @@ job run writes it, always with the database's `now()`:
   60 s while it computes. The sweep fails a RUNNING row whose heartbeat is older
   than 10 minutes.
 
+And a second one: **`run_id`** (`UUID`, nullable, no default), added for run
+ownership ([ADR 0005](../adr/0005-job-status-has-named-owners.md)). It is the
+identity of the job run that holds the row:
+
+- `NULL`: the row is queued, reset, or never ran.
+- set: the claim wrote a fresh UUID. The run's heartbeat and final status are
+  written only `WHERE run_id` is still its own; queueing and a reset clear it.
+
 What stays app-side, and why:
 
 | Column | Where | Why it is not in the intersection |
@@ -133,24 +142,57 @@ subclass — SQLAlchemy simply does not map it. A **missing** column is not: the
 first query against it fails at runtime. Cutting the intersection rather than
 the union is what makes the mixin safe across several physical schemas.
 
-### Queueing a run, and resetting a job, in an own job class
+### The run-owned columns, and the transitions that write them
 
-The job run claims only a row that is `RUNNING` with `heartbeat_at IS NULL`. Every
-job class therefore keeps three rules (the framework `Job` does):
+`status`, `submitted`, `heartbeat_at` and `run_id` are **run-owned**
+(`db_manager.RUN_OWNED_COLUMNS`, also importable as `job.RUN_OWNED_COLUMNS`):
+only the named transitions of `cosmo_ecosystem.job_run` write them, each one a
+single conditional update that says whether it applied
+([ADR 0005](../adr/0005-job-status-has-named-owners.md)). No save writes them: a
+Job loaded earlier must not put an old state back.
 
-- **Submit queues through `job_run.mark_queued(job_id)`**, before the enqueue
-  (ADR 0002). It writes `status='RUNNING'` and `heartbeat_at=NULL` in one update.
-  A submit that writes `RUNNING` itself leaves the last run's heartbeat in the row:
-  the new run loses its claim, is dropped, and the sweep fails the job.
-- **A reset returns the job to PENDING through `job_run.mark_pending(job_id)`**:
-  `status='PENDING'` and `heartbeat_at=NULL` in one update, `JobNotFound` without a
-  row. An app without a reset, which resubmits a FAILED job directly
-  (COSMOPOLITAN), is covered by `mark_queued` alone: it clears the heartbeat too.
-- **A save never writes `heartbeat_at` back.** A job loaded before the run's last
-  beat would overwrite it with an older value (`job.RUN_OWNED_COLUMNS`).
+| Transition | From | Writes | Returns |
+| --- | --- | --- | --- |
+| `mark_queued(job_id)` | PENDING, FAILED | RUNNING, heartbeat and run id NULL, `submitted` true | bool |
+| `mark_pending(job_id)` | PENDING, FAILED, COMPLETED | PENDING, heartbeat and run id NULL, `submitted` kept | bool |
+| `mark_cancelled(job_id)` | RUNNING | FAILED, plus one job log line | bool |
+| claim (in `run`) | RUNNING, no heartbeat | heartbeat `now()`, fresh `run_id` | |
+| heartbeat, end (in `run`) | RUNNING, own `run_id` | heartbeat, COMPLETED or FAILED | |
+| `mark_start_failed(job_id)` | RUNNING, no heartbeat, no run id | FAILED | bool |
+| sweep | RUNNING, stale heartbeat | FAILED | ids |
 
-`job_run.run` returns `None` for a delivery that lost the claim; the app's task
-returns at once then, before any post-run work (end mail, `notified_end`).
+Every job class keeps these rules (the framework `Job` does):
+
+- **Submit runs the guard first**: `if not job_run.mark_queued(job_id): return False`,
+  before the work dir pull, the save and the enqueue. A lost guard has no side
+  effect; log it at DEBUG. `submit` returns a bool.
+- **A reset goes through `job_run.mark_pending(job_id)`**, first, before anything is
+  deleted, and reports a refusal (the job is RUNNING). An app without a reset that
+  resubmits a FAILED job directly (COSMOPOLITAN) is covered by `mark_queued` alone.
+- **A cancel is `job_run.mark_cancelled(job_id)`**, after the app revoked the task.
+  A job that already finished stays as it is.
+- **A save filters its row with `RUN_OWNED_COLUMNS`.** `DbManager.add_entry` also
+  skips them when it updates an existing row; a new row starts PENDING and not
+  submitted. An attribute save (`Job.save_attributes`) names none of them.
+- **Input goes onto an existing row only through
+  `job_persistence.update_input(job_id, columns)`** (framework `Job.save_input`):
+  one update `WHERE status = 'PENDING'` of the input columns, returning whether it
+  applied; it never writes `start_date`. Creating a job still inserts.
+- **A delete goes through `job_persistence.delete_job`/`delete_jobs`**: the row goes
+  first, by `DbManager.delete_job`, one conditional delete returning a bool. A
+  RUNNING job is refused (`False`, or the refused ids), nothing of it is deleted
+  (no files, no job log), and the page tells the user to cancel or wait. The
+  remote prefix, work dir and job log follow; a storage failure after the row delete
+  leaves a remote orphan (reported by `job_retention.find_orphaned_prefixes`)
+  instead of a row to retry, which is accepted. The retention cleanup skips RUNNING rows and
+  purges `job_logs` records without a job row.
+- **A failed enqueue writes FAILED through `job_run.mark_start_failed`**, which only
+  fails a row that is still a queued run.
+
+`job_run.run` returns `None` for a delivery that lost the claim and for a run that
+was overtaken (cancelled, swept as lost, reset, replaced by a newer run): the app's
+task returns at once then, before any post-run work (end mail, `notified_end`).
+`DbManager.set_submitted` is gone.
 
 ### Changing it
 

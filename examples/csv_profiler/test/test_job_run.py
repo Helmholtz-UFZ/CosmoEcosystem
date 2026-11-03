@@ -11,12 +11,13 @@ from sqlalchemy import create_engine
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import sessionmaker
 
-from cosmo_ecosystem import job_log, job_persistence, job_run, object_storage_manager
+from cosmo_ecosystem import job_log, job_run, object_storage_manager
 from cosmo_ecosystem.config import OBJECT_STORAGE_BUCKET, OBJECT_STORAGE_REMOTE_NAME
 from cosmo_ecosystem.db_manager import DbManager
 from cosmo_ecosystem.error_handling import JobNotFound
 from cosmo_ecosystem.job_log import JobLogHandler
 from cosmo_ecosystem.job_persistence import load_row, local_dir
+from cosmo_ecosystem.tasks.sweep_tasks import sweep_lost_runs
 from cosmo_ecosystem.object_storage_manager import (
     delete_directory_from_storage,
     get_remote_files,
@@ -27,7 +28,7 @@ from cosmo_ecosystem.object_storage_manager import (
 import csv_profiler.domain  # noqa: F401
 from csv_profiler.pydantic_models import ProfileConfig
 from csv_profiler.tasks.computation_tasks import profile
-from job_row_helpers import row_and_log, set_heartbeat
+from job_row_helpers import drop_row, row_and_log, set_heartbeat, set_row_columns
 
 SAMPLE_CSV = os.path.join(os.path.dirname(__file__), "sample_mixed.csv")
 CSV_NAME = "sample_mixed.csv"
@@ -72,8 +73,7 @@ def _cleanup(job_id):
     delete_directory_from_storage(job_id)
     shutil.rmtree(local_dir(job_id), ignore_errors=True)
     job_log.clear(job_id)
-    if DbManager.check_existence(job_id):
-        DbManager.delete_job(job_id)
+    drop_row(job_id)
 
 
 def test_a_successful_run_ends_completed_with_its_outputs_in_the_remote_prefix():
@@ -217,6 +217,7 @@ def test_a_new_run_starts_with_an_empty_job_log():
 
     try:
         job_run.run(job_id, computing("first run"))
+        job_run.mark_pending(job_id)
         job_run.mark_queued(job_id)
         job_run.run(job_id, computing("second run"))
 
@@ -364,17 +365,16 @@ def test_whoever_sees_the_final_status_also_sees_the_last_records(
     job_id = "test_job_run_final_records"
     _submit(job_id)
     log_when_final = []
-    update_columns = job_persistence.update_columns
+    end_run = DbManager.end_run
 
-    def update_columns_and_read_the_log(job_id, data):
-        """Write the columns, then read the job log as a poll would right then."""
-        update_columns(job_id, data)
-        if data["status"] == final_status:
+    def end_run_and_read_the_log(job_id, run_id, status):
+        """Write the status, then read the job log as a poll would right then."""
+        applied = end_run(job_id, run_id, status)
+        if status == final_status:
             log_when_final.append(job_log.read(job_id))
+        return applied
 
-    monkeypatch.setattr(
-        job_persistence, "update_columns", update_columns_and_read_the_log
-    )
+    monkeypatch.setattr(DbManager, "end_run", end_run_and_read_the_log)
 
     try:
         job_run.run(job_id, compute)
@@ -390,7 +390,7 @@ def test_mark_queued_makes_the_row_running_with_no_heartbeat():
     """A queued run is RUNNING, and no worker has claimed it yet."""
     job_id = "test_job_run_mark_queued"
     _submit(job_id)
-    job_persistence.update_columns(job_id, {"status": "FAILED"})
+    set_row_columns(job_id, status="FAILED")
     set_heartbeat(job_id, "11 minutes")
 
     try:
@@ -465,7 +465,7 @@ def test_a_delivery_for_a_row_that_is_not_running_changes_nothing(status):
     """A stale message after a reset, or one for a cancelled job, is dropped."""
     job_id = "test_job_run_not_running"
     _submit(job_id)
-    job_persistence.update_columns(job_id, {"status": status})
+    set_row_columns(job_id, status=status)
     job_log.append(job_id, "cancelled by user")
     before = row_and_log(job_id)
 
@@ -562,23 +562,30 @@ def test_a_live_runs_heartbeat_never_claims_a_requeued_row():
     """A run swept by mistake and then resubmitted is not kept alive by the old run.
 
     The old run's heartbeat thread goes on beating; the re-queued row must still
-    have no heartbeat afterwards, so the new delivery wins its claim.
+    have no heartbeat afterwards, so the new delivery wins its claim. The old
+    run is overtaken: it writes no final status over the new run's.
     """
     job_id = "test_job_run_requeued_under_a_live_run"
     _submit(job_id)
     seen = []
 
     def compute_while_swept_and_resubmitted(job_id, work_dir):
-        """Re-queue the row under this live run, let it beat, deliver again."""
+        """Sweep the row under this live run, queue it again, let it beat."""
+        set_heartbeat(job_id, "11 minutes")
+        sweep_lost_runs()
         job_run.mark_queued(job_id)
         time.sleep(1)  # five heartbeat intervals
         seen.append(load_row(job_id)["heartbeat_at"])
         seen.append(job_run.run(job_id, lambda job_id, work_dir: None))
 
     try:
-        job_run.run(job_id, compute_while_swept_and_resubmitted, heartbeat_interval=0.2)
+        overtaken = job_run.run(
+            job_id, compute_while_swept_and_resubmitted, heartbeat_interval=0.2
+        )
 
         assert seen == [None, "COMPLETED"]
+        assert overtaken is None
+        assert load_row(job_id)["status"] == "COMPLETED"
     finally:
         _cleanup(job_id)
 
@@ -615,7 +622,7 @@ def test_a_claim_that_fails_leaves_a_row_another_delivery_claimed_alone(monkeypa
     try:
         status = job_run.run(job_id, _failing_compute)
 
-        assert status == "FAILED"
+        assert status is None
         assert row_and_log(job_id) == before
     finally:
         monkeypatch.undo()
@@ -626,7 +633,7 @@ def test_mark_pending_returns_the_row_to_pending_with_no_heartbeat():
     """A reset job carries no trace of its last run's sign of life."""
     job_id = "test_job_run_mark_pending"
     _submit(job_id)
-    job_persistence.update_columns(job_id, {"status": "FAILED"})
+    set_row_columns(job_id, status="FAILED")
     set_heartbeat(job_id, "11 minutes")
 
     try:

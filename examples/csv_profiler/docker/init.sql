@@ -18,7 +18,10 @@ CREATE TABLE jobs (
     version VARCHAR,
     -- Written with the database's now() by the job run (cosmo_ecosystem.job_run);
     -- NULL while the run is queued and unclaimed.
-    heartbeat_at TIMESTAMPTZ
+    heartbeat_at TIMESTAMPTZ,
+    -- The identity of the job run that holds the row: a fresh UUID written by the
+    -- claim, NULL while queued or reset (cosmo_ecosystem.job_run, ADR 0005).
+    run_id UUID
 );
 
 -- Create logs table for application logging
