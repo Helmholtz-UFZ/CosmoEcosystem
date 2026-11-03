@@ -14,6 +14,7 @@ from playwright.sync_api import expect
 
 from cosmo_ecosystem.config import PORT
 from cosmo_ecosystem.constants import (
+    ERROR_MODAL_SHARED_ID,
     DOWNLOAD_BUTTON_SHARED_ID,
     NAVBAR_COLLAPSE_DIV_SHARED_ID,
     NAVBAR_TOGGLER_BUTTON_SHARED_ID,
@@ -25,6 +26,7 @@ from csv_profiler.constants import (
     CHANGE_INPUT_BUTTON_JOB_SUBMISSION_ID,
     CHECK_INPUT_BUTTON_INPUT_ID,
     CSV_UPLOAD_INPUT_ID,
+    JOB_FEEDBACK_FORMTEXT_HOME_ID,
     JOB_INPUT_HOME_ID,
     JOB_LOGS_DIV_JOB_SUBMISSION_ID,
     RESET_CONFIRM_BUTTON_SHARED_ID,
@@ -297,3 +299,23 @@ def test_error_recovery_flow(page, dash_app, celery_worker):
     expect(page.locator(f"#{SUMMARY_TABLE_RESULTS_ID}")).to_be_visible(timeout=15000)
     check_all_errors(page)
     logging.info("Error recovery e2e test passed")
+
+
+def test_start_with_an_invalid_job_id_stays_on_home(page, dash_app):
+    """An invalid id is rejected at the Start button, not by an internal error."""
+    page.goto(f"{BASE_URL}/")
+    page.set_viewport_size({"width": 1920, "height": 1080})
+    job_input = page.locator(f"#{JOB_INPUT_HOME_ID}")
+    expect(job_input).to_be_visible(timeout=10000)
+    wait_for_dash_callback(page)
+
+    job_input.fill("bad id!")
+    expect(page.locator(f"#{JOB_FEEDBACK_FORMTEXT_HOME_ID}")).to_contain_text(
+        "letters numbers or underscore"
+    )
+    page.locator(f"#{START_BUTTON_HOME_ID}").click()
+    wait_for_dash_callback(page)
+    page.wait_for_timeout(1500)
+
+    expect(page.locator(f"#{ERROR_MODAL_SHARED_ID}")).not_to_be_visible()
+    assert page.url == f"{BASE_URL}/"

@@ -100,6 +100,19 @@ def layout():
 # ============================================================================
 
 
+def _job_id_error(job_id):
+    """Return why ``job_id`` cannot be used for a new job, or "" if it can."""
+    try:
+        validate_job_id(job_id)
+    except ValueError as e:
+        return str(e)
+
+    if DbManager.check_existence(job_id):
+        return "Job ID already exists"
+
+    return ""
+
+
 @callback(
     Output(URL_LOCATION_SHARED_ID, "pathname", allow_duplicate=True),
     Input(START_BUTTON_HOME_ID, "n_clicks"),
@@ -109,6 +122,9 @@ def layout():
 def start_job(n_clicks, job_id):
     """Create the job and navigate to input page."""
     if n_clicks is None:
+        raise PreventUpdate
+    # The feedback text already tells the user why; Job() would raise.
+    if _job_id_error(job_id):
         raise PreventUpdate
     Job(new_job_id=job_id)
     base_path = dash.page_registry["pages.input"]["path_template"]
@@ -124,12 +140,8 @@ def start_job(n_clicks, job_id):
 )
 def validate_new_job_id(job_id):
     """Validate the job ID in real time."""
-    try:
-        validate_job_id(job_id)
-    except ValueError as e:
-        return str(e), False, True
-
-    if DbManager.check_existence(job_id):
-        return "Job ID already exists", False, True
+    error = _job_id_error(job_id)
+    if error:
+        return error, False, True
 
     return "", True, False
