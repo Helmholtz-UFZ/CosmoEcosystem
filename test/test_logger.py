@@ -1,7 +1,12 @@
 """The logging configuration builders apps call at startup."""
 
+import gc
 import logging
+import threading
+import time
+import weakref
 
+import psycopg2
 import pytest
 
 from cosmo_ecosystem import logger as logger_module
@@ -17,21 +22,37 @@ def test_the_computation_logger_config_warns_that_it_will_go(tmp_path):
 
 
 class _FakePool:
-    """Stands in for SimpleConnectionPool: counts builds, hands out a fake connection."""
+    """Stands in for SimpleConnectionPool: counts builds, hands out fake connections.
+
+    ``fail_getconn`` and ``fail_execute`` are class-level switches a test sets to
+    an exception to raise; ``put`` records every ``putconn`` as (connection, close).
+    """
 
     built = []
+    build_delay = 0
+    fail_getconn = None
+    fail_execute = None
 
     def __init__(self, minconn, maxconn, **params):
+        time.sleep(_FakePool.build_delay)
         self.closed = False
+        self.put = []
         _FakePool.built.append(self)
 
     def getconn(self):
+        if _FakePool.fail_getconn is not None:
+            raise _FakePool.fail_getconn
         return _FakeConnection()
 
     def putconn(self, connection, close=False):
-        pass
+        self.put.append((connection, close))
 
     def closeall(self):
+        self.closed = True
+
+    def __del__(self):
+        # Garbage collection of a real pool closes its connections, which sends
+        # a Terminate on a socket a parent process may still own.
         self.closed = True
 
 
@@ -51,13 +72,18 @@ class _FakeCursor:
         return False
 
     def execute(self, sql, params):
-        pass
+        if _FakePool.fail_execute is not None:
+            raise _FakePool.fail_execute
 
 
 @pytest.fixture
 def fake_pool(monkeypatch):
     _FakePool.built = []
+    _FakePool.build_delay = 0
+    _FakePool.fail_getconn = None
+    _FakePool.fail_execute = None
     monkeypatch.setattr(logger_module.pool, "SimpleConnectionPool", _FakePool)
+    monkeypatch.setattr(logger_module, "_INHERITED_POOLS", [])
     return _FakePool
 
 
@@ -87,11 +113,111 @@ def test_a_forked_process_gets_its_own_pool_and_leaves_the_parents_open(
     """A gunicorn worker inherits the master's sockets; sharing them corrupts the stream."""
     handler = logger_module.PostgreSQLHandler({})
     handler.emit(_record())
-    parent_pool = fake_pool.built[0]
+    parent_pool = weakref.ref(fake_pool.built[0])
+    fake_pool.built.clear()
 
     monkeypatch.setattr(logger_module.os, "getpid", lambda: -1)
     handler.emit(_record())
     handler.close()
+    gc.collect()
 
-    assert len(fake_pool.built) == 2
-    assert not parent_pool.closed
+    assert len(fake_pool.built) == 1
+    assert parent_pool() is not None, "inherited pool was garbage collected"
+    assert not parent_pool().closed
+
+
+def test_two_threads_on_a_fresh_handler_build_one_pool(fake_pool):
+    fake_pool.build_delay = 0.1
+    handler = logger_module.PostgreSQLHandler({})
+    threads = [
+        threading.Thread(target=lambda: handler.connection_pool) for _ in range(4)
+    ]
+
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert len(fake_pool.built) == 1
+
+
+@pytest.fixture
+def handler_errors(fake_pool, monkeypatch):
+    """A handler whose ``handleError`` calls are collected instead of printed."""
+    handler = logger_module.PostgreSQLHandler({})
+    errors = []
+    monkeypatch.setattr(handler, "handleError", errors.append)
+    return handler, errors
+
+
+def test_an_unreachable_database_does_not_raise_into_the_log_call(
+    monkeypatch, handler_errors
+):
+    def refuse(*args, **kwargs):
+        raise psycopg2.OperationalError("connection refused")
+
+    monkeypatch.setattr(logger_module.pool, "SimpleConnectionPool", refuse)
+    handler, errors = handler_errors
+    log = logging.getLogger("test_unreachable")
+    log.addHandler(handler)
+    try:
+        log.warning("database is down")
+    finally:
+        log.removeHandler(handler)
+
+    assert len(errors) == 1
+
+
+def test_a_failed_pool_build_is_tried_again_by_the_next_emit(
+    monkeypatch, handler_errors
+):
+    calls = []
+
+    def flaky(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            raise psycopg2.OperationalError("starting up")
+        return _FakePool(*args, **kwargs)
+
+    monkeypatch.setattr(logger_module.pool, "SimpleConnectionPool", flaky)
+    handler, errors = handler_errors
+
+    handler.emit(_record())
+    handler.emit(_record())
+
+    assert len(calls) == 2
+    assert len(errors) == 1
+
+
+def test_a_failing_getconn_goes_to_handle_error(fake_pool, handler_errors):
+    fake_pool.fail_getconn = logger_module.pool.PoolError("exhausted")
+    handler, errors = handler_errors
+
+    handler.emit(_record())
+
+    assert len(errors) == 1
+
+
+def test_a_bad_connection_is_closed_and_the_record_retried_once(
+    fake_pool, handler_errors
+):
+    fake_pool.fail_execute = psycopg2.OperationalError("server closed")
+    handler, errors = handler_errors
+
+    handler.emit(_record())
+
+    closes = [close for _, close in fake_pool.built[0].put]
+    assert closes == [True, True]  # first attempt and the one retry, both dropped
+    assert len(errors) == 1
+
+
+def test_another_database_error_goes_to_handle_error_and_returns_the_connection(
+    fake_pool, handler_errors
+):
+    fake_pool.fail_execute = psycopg2.ProgrammingError("no table logs")
+    handler, errors = handler_errors
+
+    handler.emit(_record())
+
+    assert [close for _, close in fake_pool.built[0].put] == [False]
+    assert len(errors) == 1

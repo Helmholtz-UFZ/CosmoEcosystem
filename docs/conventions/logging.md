@@ -79,6 +79,12 @@ Configuration is in `src/logger.py`:
   (`cosmo_ecosystem.celery_app`) connects, with the domain module's
   `excluded_log_packages` muted. An app sets that attribute and nothing else; it
   neither connects nor disconnects a signal.
+- The PostgreSQL handler connects on its first record, once per process, not when
+  it is built: `dictConfig` builds it at import, and a preloading gunicorn master
+  would hand its socket to every forked worker. A child builds its own pool after
+  a fork and keeps the inherited one alive, never closed (closing it would
+  terminate the parent's session). A failure to connect or write goes to
+  `handleError`, never into the `log.*()` call; the next record tries again.
 - Computation tasks: the worker config, plus the job log (below)
 - Third-party package filtering to reduce noise
 
