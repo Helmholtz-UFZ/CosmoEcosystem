@@ -267,25 +267,28 @@ def format_scheduled_tasks(scheduled_tasks):
     """Format scheduled tasks for display.
 
     Args:
-        scheduled_tasks: List of scheduled task dicts
+        scheduled_tasks: List of ``inspect.scheduled()`` entries, each with the
+            worker name added
 
     Returns:
         list: Formatted task dicts
     """
     formatted = []
     for task in scheduled_tasks:
-        eta = task.get("eta")  # eta absent for tasks without scheduled time
+        # inspect.scheduled() nests the task in "request"; only eta and priority
+        # sit beside it (celery.worker.control._iter_schedule_requests).
+        request = task["request"]
+        eta = task["eta"]
         eta_str = (
             datetime.fromisoformat(eta).strftime("%Y-%m-%d %H:%M:%S") if eta else "N/A"
         )
 
         formatted.append(
             {
-                "task_id": task["id"],
-                "task_name": task["name"].split(".")[-1],
+                "task_id": request["id"],
+                "task_name": request["name"].split(".")[-1],
                 "eta": eta_str,
-                # delivery_info may be absent for tasks without routing info
-                "queue": task.get("delivery_info", {}).get("routing_key", "default"),
+                "queue": request["delivery_info"]["routing_key"],
                 "worker": task["worker"],
             }
         )
