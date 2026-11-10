@@ -40,7 +40,7 @@ Apps consume `cosmo-ecosystem` as a **pinned git-tag dependency** (not a clone):
 ```toml
 [project]
 dependencies = [
-    "cosmo-ecosystem @ git+https://codebase.helmholtz.cloud/.../cosmo-ecosystem@v1.0.0",
+    "cosmo-ecosystem @ git+https://codebase.helmholtz.cloud/.../cosmo-ecosystem@v1.0.1",
 ]
 
 [tool.hatch.metadata]
