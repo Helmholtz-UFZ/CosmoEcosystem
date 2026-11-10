@@ -61,7 +61,12 @@ How env vars reach containers (see `docker-compose.yml`):
   `COPY env_prod .env` bakes non-secret vars into the image; the CMD sources
   `.env` before starting the process.
 - **`DOCKER_UID` / `DOCKER_GID`**: Used in `docker-compose.yml` via
-  `user: "${DOCKER_UID}:${DOCKER_GID}"` for file permission mapping.
+  `user: "${DOCKER_UID}:${DOCKER_GID}"` for file permission mapping. The scripts
+  that start the app and worker containers source `set_docker_user.sh`, which
+  exports the host user's IDs (rootful Docker) or `0:0` (rootless Docker, where
+  container root is the host user). The exported values override the env file's
+  `1000`, so the bind-mounted source stays writable on either setup. The env file
+  values remain for CI and for `docker compose` run by hand.
 
 ---
 
