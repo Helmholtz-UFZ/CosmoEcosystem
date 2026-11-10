@@ -39,6 +39,13 @@ TRANSFER_TIMEOUT = 600  # copy / sync / purge — grows with the job's file volu
 CONTROL_TIMEOUT = 60  # listings, single-file delete, config, mkdir
 CONNECTION_CHECK_TIMEOUT = 5  # the pre-flight below, which must fail fast
 
+# Files still being written: the apps write to ``<name>.<random>.tmp`` and
+# rename into place. A transfer that picks one up fails ("source file is being
+# updated") or ships a partial file, and the verification would demand it. So
+# every job transfer and every listing it is checked against skips them.
+TEMP_FILE_SUFFIX = ".tmp"
+_TEMP_FILE_EXCLUDE = ["--exclude", f"*{TEMP_FILE_SUFFIX}"]
+
 # rclone and boto3 have to sign for the same region. S3-compatible stores that are
 # not AWS accept any name; us-east-1 is the one every client falls back to.
 OBJECT_STORAGE_REGION = "us-east-1"
@@ -282,7 +289,8 @@ def setup_remote() -> None:
 
 
 def get_local_files(local_path: str) -> set:
-    """Get set of all files in a local directory (relative paths).
+    """Get set of all files in a local directory (relative paths), temp files
+    (``TEMP_FILE_SUFFIX``) excluded.
 
     Args:
         local_path: Path to local directory
@@ -296,6 +304,8 @@ def get_local_files(local_path: str) -> set:
 
     for root, _, filenames in os.walk(local_path):
         for filename in filenames:
+            if filename.endswith(TEMP_FILE_SUFFIX):
+                continue
             # Get full path and make it relative to local_path
             full_path = os.path.join(root, filename)
             rel_path = os.path.relpath(full_path, local_path)
@@ -305,7 +315,8 @@ def get_local_files(local_path: str) -> set:
 
 
 def get_remote_files(remote_path: str) -> set:
-    """Get set of all files in a remote directory using rclone ls.
+    """Get set of all files in a remote directory using rclone ls, temp files
+    (``TEMP_FILE_SUFFIX``) excluded.
 
     Args:
         remote_path: Remote path in format "remote:bucket/dirname"
@@ -313,7 +324,7 @@ def get_remote_files(remote_path: str) -> set:
     Returns:
         Set of relative file paths
     """
-    ls_params = ["rclone", "ls", remote_path]
+    ls_params = ["rclone", "ls", remote_path, *_TEMP_FILE_EXCLUDE]
 
     result = run_rclone_with_retry(ls_params, timeout=CONTROL_TIMEOUT)
 
@@ -374,6 +385,7 @@ def get_files(
         remote_path,
         local_path,
         "--checksum" if overwrite else "--ignore-existing",
+        *_TEMP_FILE_EXCLUDE,
     ]
 
     result = run_rclone_with_retry(sync_params, timeout=timeout, check_connection=True)
@@ -473,6 +485,7 @@ def save_files(dirname: str, timeout: float = TRANSFER_TIMEOUT) -> None:
         local_path,
         remote_path,
         "--checksum",
+        *_TEMP_FILE_EXCLUDE,
     ]
 
     run_rclone_with_retry(sync_params, timeout=timeout, check_connection=True)
@@ -525,6 +538,7 @@ def upload_files(dirname: str, timeout: float = TRANSFER_TIMEOUT) -> None:
         local_path,
         remote_path,
         "--checksum",
+        *_TEMP_FILE_EXCLUDE,
     ]
     run_rclone_with_retry(copy_params, timeout=timeout, check_connection=True)
 
