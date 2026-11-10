@@ -571,8 +571,11 @@ def test_a_live_runs_heartbeat_never_claims_a_requeued_row():
 
     def compute_while_swept_and_resubmitted(job_id, work_dir):
         """Sweep the row under this live run, queue it again, let it beat."""
+        # This run's own heartbeat thread may beat between the two calls, so
+        # age the heartbeat until the sweep has actually caught the row.
         set_heartbeat(job_id, "11 minutes")
-        sweep_lost_runs()
+        while job_id not in sweep_lost_runs():
+            set_heartbeat(job_id, "11 minutes")
         job_run.mark_queued(job_id)
         time.sleep(1)  # five heartbeat intervals
         seen.append(load_row(job_id)["heartbeat_at"])
