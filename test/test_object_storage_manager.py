@@ -167,3 +167,39 @@ def test_create_bucket_leaves_an_existing_bucket_alone(monkeypatch):
     object_storage_manager.create_bucket()
 
     assert len(calls) == 1
+
+
+def test_local_listing_skips_files_still_being_written(tmp_path):
+    """A ``<name>.<random>.tmp`` beside a job file is not part of the job."""
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "edited.geojson").write_text("{}")
+    (tmp_path / "edited.geojson.1a2b3c4d.tmp").write_text("{")
+    (tmp_path / "sub" / "part.tmp").write_text("")
+
+    assert object_storage_manager.get_local_files(str(tmp_path)) == {"edited.geojson"}
+
+
+@pytest.mark.parametrize(
+    "transfer",
+    [
+        object_storage_manager.upload_files,
+        object_storage_manager.save_files,
+        object_storage_manager.get_files,
+    ],
+)
+def test_job_transfers_and_their_listings_exclude_temp_files(monkeypatch, transfer):
+    """A worker writing ``*.tmp`` into the shared work dir during an upload made
+    rclone fail with "source file is being updated" (COSMONAUT, 2026-11-09)."""
+    calls = []
+
+    def fake_rclone(params, timeout, check_connection=False):
+        calls.append(params)
+        return subprocess.CompletedProcess(params, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(object_storage_manager, "run_rclone_with_retry", fake_rclone)
+
+    transfer("job")
+
+    assert calls
+    for params in calls:
+        assert params[-2:] == ["--exclude", "*.tmp"], params
